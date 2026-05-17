@@ -6126,13 +6126,11 @@ html[lang^="ar"] .layout {
   unicode-bidi: plaintext;
 }
 /* User messages float right, assistant messages float left */
-.chat-content-rtl .msg-row[data-role="user"] {
-  align-self: auto;
+.chat-content-rtl .msg-row[data-role="user"] .msg-body {
   margin-left: auto;
   margin-right: 0;
 }
-.chat-content-rtl .msg-row[data-role="assistant"] {
-  align-self: auto;
+.chat-content-rtl .msg-row[data-role="assistant"] .msg-body {
   margin-left: 0;
   margin-right: auto;
 }
