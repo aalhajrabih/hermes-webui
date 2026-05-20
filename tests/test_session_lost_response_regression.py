@@ -294,3 +294,46 @@ def test_sealed_empty_journal_consumes_retry_budget_and_demotes_at_max(hermes_ho
     _assert_retry_meta_removed(marker)
     assert not any(m.get("_recovered_from_run_journal") for m in s.messages)
 
+
+def test_marker_demotes_after_max_attempts_with_sealed_empty_journal(hermes_home, monkeypatch):
+    sid = "retry_max_sid"
+    stream_id = "retry_max_stream"
+    s = _make_pending_retry_session(sid, stream_id=stream_id)
+    s.messages[-1]["_journal_retry_attempts"] = models._JOURNAL_RETRY_MAX_ATTEMPTS - 1
+    append_run_event(sid, stream_id, "stream_end", {})
+    models.SESSIONS[sid] = s
+
+    assert models.get_session(sid) is s
+
+    marker = s.messages[-1]
+    assert marker["content"] == models._INTERRUPTED_NEUTRAL_WORDING
+    _assert_retry_meta_removed(marker)
+    assert not any(m.get("_recovered_from_run_journal") for m in s.messages)
+
+
+def test_marker_demotes_after_giveup_seconds(hermes_home, monkeypatch):
+    base = 1_779_000_000
+    monkeypatch.setattr(models.time, "time", lambda: base)
+    sid = "retry_age_sid"
+    stream_id = "retry_age_stream"
+    s = _make_pending_retry_session(sid, stream_id=stream_id)
+    s.messages[-1]["_journal_retry_first_seen_ts"] = (
+        base - models._JOURNAL_RETRY_GIVEUP_SECONDS - 1
+    )
+    models.SESSIONS[sid] = s
+
+    append_calls = 0
+
+    def append_should_not_run(*args, **kwargs):
+        nonlocal append_calls
+        append_calls += 1
+        return False
+
+    monkeypatch.setattr(models, "_append_journaled_partial_output", append_should_not_run)
+
+    assert models.get_session(sid) is s
+
+    marker = s.messages[-1]
+    assert marker["content"] == models._INTERRUPTED_NEUTRAL_WORDING
+    _assert_retry_meta_removed(marker)
+    assert append_calls == 0
