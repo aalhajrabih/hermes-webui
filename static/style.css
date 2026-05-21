@@ -676,12 +676,11 @@
     justify-content:center;
     gap:3px;
     width:var(--session-swipe-reveal,0px);
-    min-width:36px;
     padding:0 8px;
     box-sizing:border-box;
     opacity:0;
     overflow:hidden;
-    transform:translate3d(calc(-1 * var(--session-swipe-offset,0px)),0,0) scale(calc(.82 + var(--session-swipe-progress,0) * .18));
+    transform:translate3d(calc(-1 * var(--session-swipe-offset,0px)),0,0);
     pointer-events:none;
     z-index:0;
   }
@@ -712,7 +711,7 @@
     align-items:center;
     justify-content:center;
     color:#fff;
-    transform:scaleX(var(--session-swipe-icon-scale,1));
+    transform:scale(var(--session-swipe-icon-scale,1));
     transform-origin:center;
   }
   .session-swipe-badge svg{display:block;stroke-width:2.2;}

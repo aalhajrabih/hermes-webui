@@ -129,6 +129,7 @@ def test_session_swipe_paint_uses_transform_only_exit():
     assert "--session-swipe-offset" in paint
     assert "--session-swipe-reveal" in paint
     assert "--session-swipe-progress" in paint
+    assert "const reveal=Math.abs(offset);" in paint
     assert "window.innerWidth+'px'" in complete
     assert "el.style.height=rect.height+'px'" in complete
     assert "requestAnimationFrame(()=>el.classList.add('swipe-removing'))" in complete
@@ -136,7 +137,9 @@ def test_session_swipe_paint_uses_transform_only_exit():
     assert "el.classList.remove('swiping-right','swiping-left','swipe-committed','swipe-removing')" in clear
     assert ".session-item.swipe-committed,\n  .session-item.swipe-removing{transition:" in STYLE_CSS
     assert "transition:background .15s,color .15s,transform .5s cubic-bezier(.22,.61,.36,1),box-shadow .15s ease" in STYLE_CSS
-    assert "transform:translate3d(calc(-1 * var(--session-swipe-offset,0px)),0,0) scale(calc(.82 + var(--session-swipe-progress,0) * .18))" in STYLE_CSS
+    assert "transform:translate3d(calc(-1 * var(--session-swipe-offset,0px)),0,0)" in STYLE_CSS
+    assert "transform:scale(var(--session-swipe-icon-scale,1))" in STYLE_CSS
+    assert "min-width:36px" not in STYLE_CSS[STYLE_CSS.find(".session-swipe-affordance{"):STYLE_CSS.find(".session-swipe-affordance-right{")]
     swipe_start = STYLE_CSS.find(".session-item.swipe-removing{")
     swipe_end = STYLE_CSS.find("}", swipe_start)
     assert swipe_start >= 0 and swipe_end > swipe_start

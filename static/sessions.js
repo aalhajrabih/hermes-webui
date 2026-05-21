@@ -3735,7 +3735,7 @@ function renderSessionListFromCache(){
       const overshoot=Math.max(0,Math.abs(rawOffset)-72);
       const offset=Math.sign(rawOffset)*(Math.abs(revealedOffset)+Math.sqrt(overshoot)*5);
       const progress=Math.min(1,Math.abs(revealedOffset)/72);
-      const reveal=Math.min(132,Math.max(36,Math.abs(rawOffset)+24));
+      const reveal=Math.abs(offset);
       const iconScale=1+Math.min(.45,Math.max(0,Math.abs(rawOffset)-52)/130);
       el.style.setProperty('--session-swipe-offset',offset+'px');
       el.style.setProperty('--session-swipe-reveal',reveal+'px');
