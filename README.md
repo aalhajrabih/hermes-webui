@@ -1,4 +1,86 @@
-# Hermes Web UI
+# Hermes Web UI — الإصدار المُعرَّب (Arabic Edition)
+
+<div dir="rtl" lang="ar">
+
+## لماذا هذا المستودع؟ — Why This Fork
+
+هذا إصدار مُعرَّب بالكامل من **Hermes WebUI**، مبني على آخر إصدار من المستودع الأصلي
+([nesquena/hermes-webui](https://github.com/nesquena/hermes-webui)) مع دعم كامل للغة العربية
+وتخطيط RTL احترافي.
+
+### ما يميز هذا الإصدار
+
+| الميزة | التفاصيل |
+|--------|----------|
+| **ترجمة عربية شاملة** | **1078+ مفتاح** — كل واجهة المستخدم: الإعدادات، المحادثات، المهام، المهارات، كانبان، لوحة البداية، الملفات الشخصية، السجلات… صفر مفاتيح ناقصة |
+| **تخطيط RTL كامل** | الشريط الجانبي والقائمة على اليمين، فقاعات المحادثة باتجاه عربي صحيح (المستخدم يمين، المساعد يسار)، قوائم السياق والإجراءات متناسقة |
+| **خط عربي احترافي** | خط **ثمانية (Thmanyah Sans)** — 5 أوزان (Light/Regular/Medium/Bold/Black)، مضغوط woff2 (~385KB) |
+| **محتوى مختلط بذكاء** | الواجهة العربية مع بقاء الأكواد والجداول والرياضيات باتجاه LTR تلقائياً |
+| **متوافق مع الجوال** | تخطيط RTL يعمل بكفاءة على الهواتف والأجهزة اللوحية |
+| **متزامن مع الأصل** | مبني على الإصدار `v0.51.124` من المستودع الأصلي |
+
+> **لماذا تستخدم هذا الإصدار بدل الأصلي؟** إذا كنت تتحدث العربية أو تفضّل واجهة RTL،
+> فهذا الإصدار يوفر تجربة استخدام كاملة ومريحة بدون الحاجة لأي إعدادات إضافية.
+> اختر العربية من Settings → Preferences وستتحول الواجهة بالكامل.
+
+---
+
+## التثبيت السريع — Quick Install
+
+### الطريقة الأولى: clone مباشر (موصى به)
+
+```bash
+git clone https://github.com/aalhajrabih/hermes-webui.git hermes-webui
+cd hermes-webui
+git checkout feature/arabic-language-rtl
+python3 bootstrap.py
+```
+
+### الطريقة الثانية: من start.sh
+
+```bash
+git clone https://github.com/aalhajrabih/hermes-webui.git hermes-webui
+cd hermes-webui
+git checkout feature/arabic-language-rtl
+./start.sh
+```
+
+### الطريقة الثالثة: إضافة الفرع لمستودع موجود
+
+إذا كان لديك مستودع hermes-webui أصلي بالفعل:
+
+```bash
+cd ~/hermes-webui
+git remote add fork https://github.com/aalhajrabih/hermes-webui.git
+git fetch fork
+git checkout -b arabic-rtl fork/feature/arabic-language-rtl
+```
+
+### تفعيل العربية
+
+بعد تشغيل WebUI:
+
+1. افتح المتصفح على `http://localhost:8787`
+2. اذهب إلى **Settings → Preferences** (الإعدادات → التفضيلات)
+3. اختر **العربية** من قائمة Language
+4. ستتحول الواجهة كاملة إلى العربية مع تخطيط RTL فوراً
+
+### المزامنة مع التحديثات الجديدة من المستودع الأصلي
+
+```bash
+cd ~/hermes-webui
+git fetch upstream
+git merge upstream/master
+# حل أي تعارضات إن وجدت
+```
+
+---
+
+</div>
+
+---
+
+## Original README (الملف الأصلي)
 
 [Hermes Agent](https://hermes-agent.nousresearch.com/) is a sophisticated autonomous agent that lives on your server, accessed via a terminal or messaging apps, that remembers what it learns and gets more capable the longer it runs.
 
@@ -98,7 +180,7 @@ ecosystem. See [docs/why-hermes.md](docs/why-hermes.md) for the full side-by-sid
 Run the repo bootstrap:
 
 ```bash
-git clone https://github.com/nesquena/hermes-webui.git hermes-webui
+git clone https://github.com/aalhajrabih/hermes-webui.git hermes-webui
 cd hermes-webui
 python3 bootstrap.py
 ```
@@ -157,7 +239,7 @@ For a comprehensive setup guide covering all 3 compose files, common failure mod
 The simplest setup: one WebUI container that runs the agent in-process.
 
 ```bash
-git clone https://github.com/nesquena/hermes-webui
+git clone https://github.com/aalhajrabih/hermes-webui
 cd hermes-webui
 cp .env.docker.example .env
 # Edit .env if your host UID isn't 1000 (e.g. macOS where UIDs start at 501)
@@ -515,6 +597,32 @@ Production data and real cron jobs are never touched. Current snapshot:
 - Full-height chat/composer on phones without bottom-nav spacing
 - Desktop layout completely unchanged
 
+### Internationalization (i18n) & RTL
+
+11 languages supported out of the box — select from Settings → Language. The UI re-renders instantly without a page reload. Missing keys fall back to English automatically.
+
+| Code | Language | Script direction | Speech recognition |
+|------|----------|-----------------|-------------------|
+| `en` | English | LTR | `en-US` |
+| `ar` | العربية (Arabic) | **RTL** | `ar-SA` |
+| `de` | Deutsch (German) | LTR | `de-DE` |
+| `es` | Español (Spanish) | LTR | `es-ES` |
+| `fr` | Français (French) | LTR | `fr-FR` |
+| `it` | Italiano (Italian) | LTR | `it-IT` |
+| `ja` | 日本語 (Japanese) | LTR | `ja-JP` |
+| `ko` | 한국어 (Korean) | LTR | `ko-KR` |
+| `pt` | Português (Portuguese) | LTR | `pt-BR` |
+| `ru` | Русский (Russian) | LTR | `ru-RU` |
+| `zh` | 中文 (Chinese) | LTR | `zh-CN` |
+
+**RTL features:**
+- Full layout mirroring — sidebar moves to the right, rail on the right, chat flows RTL
+- Direction-aware CSS scoping (`[dir="rtl"]`) — code blocks, `<kbd>`, slash commands, and tool output remain LTR inside RTL containers
+- Self-hosted Arabic typeface (Thmanyah Sans, 5 woff2 weights) with `@font-face` fallback chain
+- Mixed-direction content handled correctly — Arabic body with LTR code blocks, English variable names, and bidirectional tool cards
+
+**Adding a new language** is a single-file change: add a locale block to `static/i18n.js` with all keys translated. No build step, no framework, no external i18n library — just vanilla JS locale bundles with English fallback.
+
 ---
 
 ## Architecture
@@ -701,5 +809,7 @@ Configurable assistant display name, thinking/reasoning block display, and a log
 ## Repo
 
 ```
-git@github.com:nesquena/hermes-webui.git
+git@github.com:aalhajrabih/hermes-webui.git
 ```
+
+**Upstream:** [nesquena/hermes-webui](https://github.com/nesquena/hermes-webui)
