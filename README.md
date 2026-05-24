@@ -23,6 +23,8 @@
 > فهذا الإصدار يوفر تجربة استخدام كاملة ومريحة بدون الحاجة لأي إعدادات إضافية.
 > اختر العربية من Settings → Preferences وستتحول الواجهة بالكامل.
 
+<img src="docs/images/arabic-rtl-screenshot.png" alt="Hermes WebUI Arabic RTL screenshot" width="100%" style="border-radius: 8px; border: 1px solid #333;" />
+
 ---
 
 ## التثبيت السريع — Quick Install
