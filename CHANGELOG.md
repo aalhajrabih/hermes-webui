@@ -8,6 +8,7 @@
 - Auxiliary model settings now reject unknown task slots instead of allowing arbitrary keys under `config.yaml`'s `auxiliary` block. Valid slots and the `__reset__` sentinel continue to work.
 - Update Now no longer reports success or enters the restart wait flow when no WebUI or Agent update target is selected.
 - Cached WebUI agents no longer overwrite `prefill_messages` with an empty list when a later request does not include explicit prefill context.
+- Joplin notes drawer API calls now send the Web Clipper token in an `Authorization` header instead of placing it in the request URL query string.
 
 ## [v0.51.132] — 2026-05-24 — Release DD (stage-batch14 — 4-PR replayed-context + interrupted-response + shutdown affordance + passkey opt-in)
 

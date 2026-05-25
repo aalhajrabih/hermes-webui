@@ -12534,7 +12534,7 @@ def _joplin_connection_from_config() -> tuple[str, str]:
 def _joplin_api_get(path: str, params: dict | None = None) -> dict:
     """Call the local Joplin Web Clipper API without logging credentials."""
     from urllib.parse import urlencode
-    from urllib.request import urlopen
+    from urllib.request import Request, urlopen
     from urllib.error import HTTPError, URLError
 
     base_url, token = _joplin_connection_from_config()
@@ -12542,10 +12542,10 @@ def _joplin_api_get(path: str, params: dict | None = None) -> dict:
         raise ValueError("Joplin token is not configured")
     safe_path = "/" + str(path or "").lstrip("/")
     query = dict(params or {})
-    query["token"] = token
     url = f"{base_url}{safe_path}?{urlencode(query)}"
+    request = Request(url, headers={"Authorization": f"token {token}"})
     try:
-        with urlopen(url, timeout=8) as response:
+        with urlopen(request, timeout=8) as response:
             raw = response.read(2_000_000).decode("utf-8", errors="replace")
     except HTTPError as exc:
         raise ValueError(f"Joplin API returned HTTP {exc.code}") from None
