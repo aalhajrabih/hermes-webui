@@ -12,18 +12,57 @@
 
 | الميزة | التفاصيل |
 |--------|----------|
-| **ترجمة عربية شاملة** | **1078+ مفتاح** — كل واجهة المستخدم: الإعدادات، المحادثات، المهام، المهارات، كانبان، لوحة البداية، الملفات الشخصية، السجلات… صفر مفاتيح ناقصة |
+| **ترجمة عربية شاملة** | **1138+ مفتاح** — كل واجهة المستخدم: الإعدادات، المحادثات، المهام، المهارات، كانبان، لوحة البداية، الملفات الشخصية، السجلات، MCP… صفر مفاتيح ناقصة |
 | **تخطيط RTL كامل** | الشريط الجانبي والقائمة على اليمين، فقاعات المحادثة باتجاه عربي صحيح (المستخدم يمين، المساعد يسار)، قوائم السياق والإجراءات متناسقة |
+| **تفعيل RTL تلقائي** | اختيار اللغة العربية من الإعدادات يُفعّل تخطيط RTL تلقائياً — لا حاجة لتفعيله يدوياً |
 | **خط عربي احترافي** | خط **ثمانية (Thmanyah Sans)** — 5 أوزان (Light/Regular/Medium/Bold/Black)، مضغوط woff2 (~385KB) |
-| **محتوى مختلط بذكاء** | الواجهة العربية مع بقاء الأكواد والجداول والرياضيات باتجاه LTR تلقائياً |
+| **محتوى مختلط بذكاء** | الواجهة العربية مع بقاء الأكواد والجداول والرياضيات ومسارات الملفات ومخرجات الأدوات باتجاه LTR تلقائياً |
 | **متوافق مع الجوال** | تخطيط RTL يعمل بكفاءة على الهواتف والأجهزة اللوحية |
-| **متزامن مع الأصل** | مبني على الإصدار `v0.51.124` من المستودع الأصلي |
+| **متزامن مع الأصل** | مبني على الإصدار `v0.51.145` من المستودع الأصلي — 311 commit فوق آخر إصدار |
 
 > **لماذا تستخدم هذا الإصدار بدل الأصلي؟** إذا كنت تتحدث العربية أو تفضّل واجهة RTL،
 > فهذا الإصدار يوفر تجربة استخدام كاملة ومريحة بدون الحاجة لأي إعدادات إضافية.
 > اختر العربية من Settings → Preferences وستتحول الواجهة بالكامل.
 
 <img src="docs/images/arabic-rtl-screenshot.png" alt="Hermes WebUI Arabic RTL screenshot" width="100%" style="border-radius: 8px; border: 1px solid #333;" />
+
+---
+
+## الفروقات بين هذا المستودع والمستودع الأصلي — Fork vs Upstream
+
+| الملف | التغيير | الحجم |
+|-------|---------|-------|
+| `static/i18n.js` | إضافة كتلة `ar:` كاملة (1138+ مفتاح) + كشف RTL تلقائي (`RTL_LOCALES` + `setLocale`) | +1,708 سطر |
+| `static/style.css` | 209 قاعدة `.chat-content-rtl`: نقل sidebar+rail لليمين، borders، خط عربي، mobile animations، tool cards | +1,355 سطر |
+| `static/index.html` | دعم RTL في bootstrap: `dir="rtl"` + `lang="ar"` التلقائي | ±10 أسطر |
+| **الإجمالي** | ~3,000 سطر مضاف للدعم العربي الكامل | |
+
+### أين توجد التحديثات بالضبط؟
+
+1. **`static/i18n.js`** (الترجمة):
+   - كتلة `ar: { … }` بين `en` و `it` في كائن `LOCALES`
+   - دالة `setLocale()` مُعدّلة: تفحص `RTL_LOCALES` وتفعّل `.chat-content-rtl` تلقائياً للعربية
+   - المفاتيح الجديدة المترجمة: MCP servers/tools، auxiliary models، shutdown، external notes، session toolsets
+
+2. **`static/style.css`** (التخطيط):
+   - قسم `/* ── RTL chat layout */` (موروث من upstream PR #1721)
+   - قسم `/* ── Global page-level RTL */` — نقل الـ layout كاملاً: `flex-direction: row-reverse`
+   - قسم `/* ── Arabic font */` — خط ثمانية woff2
+   - Mobile RTL: sidebar-nav animations، resize handles، rail indicators
+   - Skin-specific: nous border-style overrides في وضع RTL
+
+3. **`static/index.html`** — إعدادات RTL الأولية في bootstrap
+
+### مزامنة التحديثات من المستودع الأصلي
+
+```bash
+cd ~/hermes-webui
+git fetch upstream
+git merge upstream/master
+# أي تعارضات في i18n.js: استخدم نسخة upstream ثم أضف كتلة ar من جديد
+```
+
+</div>
 
 ---
 
@@ -34,7 +73,6 @@
 ```bash
 git clone https://github.com/aalhajrabih/hermes-webui.git hermes-webui
 cd hermes-webui
-git checkout feature/arabic-language-rtl
 python3 bootstrap.py
 ```
 
@@ -43,19 +81,7 @@ python3 bootstrap.py
 ```bash
 git clone https://github.com/aalhajrabih/hermes-webui.git hermes-webui
 cd hermes-webui
-git checkout feature/arabic-language-rtl
 ./start.sh
-```
-
-### الطريقة الثالثة: إضافة الفرع لمستودع موجود
-
-إذا كان لديك مستودع hermes-webui أصلي بالفعل:
-
-```bash
-cd ~/hermes-webui
-git remote add fork https://github.com/aalhajrabih/hermes-webui.git
-git fetch fork
-git checkout -b arabic-rtl fork/feature/arabic-language-rtl
 ```
 
 ### تفعيل العربية
@@ -65,16 +91,7 @@ git checkout -b arabic-rtl fork/feature/arabic-language-rtl
 1. افتح المتصفح على `http://localhost:8787`
 2. اذهب إلى **Settings → Preferences** (الإعدادات → التفضيلات)
 3. اختر **العربية** من قائمة Language
-4. ستتحول الواجهة كاملة إلى العربية مع تخطيط RTL فوراً
-
-### المزامنة مع التحديثات الجديدة من المستودع الأصلي
-
-```bash
-cd ~/hermes-webui
-git fetch upstream
-git merge upstream/master
-# حل أي تعارضات إن وجدت
-```
+4. ستتحول الواجهة كاملة إلى العربية مع تخطيط RTL فوراً — **تلقائياً بدون أي خطوة إضافية**
 
 ---
 
@@ -643,7 +660,7 @@ Production data and real cron jobs are never touched. Current snapshot:
 
 ### Internationalization (i18n) & RTL
 
-11 languages supported out of the box — select from Settings → Language. The UI re-renders instantly without a page reload. Missing keys fall back to English automatically.
+12 languages supported out of the box — select from Settings → Language. The UI re-renders instantly without a page reload. Missing keys fall back to English automatically.
 
 | Code | Language | Script direction | Speech recognition |
 |------|----------|-----------------|-------------------|
@@ -657,11 +674,13 @@ Production data and real cron jobs are never touched. Current snapshot:
 | `ko` | 한국어 (Korean) | LTR | `ko-KR` |
 | `pt` | Português (Portuguese) | LTR | `pt-BR` |
 | `ru` | Русский (Russian) | LTR | `ru-RU` |
+| `tr` | Türkçe (Turkish) | LTR | `tr-TR` |
 | `zh` | 中文 (Chinese) | LTR | `zh-CN` |
 
-**RTL features:**
+**RTL features (this fork):**
 - Full layout mirroring — sidebar moves to the right, rail on the right, chat flows RTL
-- Direction-aware CSS scoping (`[dir="rtl"]`) — code blocks, `<kbd>`, slash commands, and tool output remain LTR inside RTL containers
+- **Auto-RTL**: selecting Arabic auto-enables `.chat-content-rtl` via `RTL_LOCALES` in `setLocale()`
+- Direction-aware CSS scoping (209 rules) — code blocks, `<kbd>`, slash commands, tool output, kaTeX, diffs, CSV, and skill paths remain LTR inside RTL containers
 - Self-hosted Arabic typeface (Thmanyah Sans, 5 woff2 weights) with `@font-face` fallback chain
 - Mixed-direction content handled correctly — Arabic body with LTR code blocks, English variable names, and bidirectional tool cards
 
