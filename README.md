@@ -39,6 +39,28 @@
 
 ### أين توجد التحديثات بالضبط؟
 
+#### مقارنة RTL: المستودع الأصلي vs هذا المستودع
+
+| ميزة RTL | Upstream (الأصلي) | Fork (هذا المستودع) |
+|----------|:---:|:---:|
+| اتجاه نصوص المحادثة | ✅ | ✅ |
+| اتجاه المُحرر (composer) | ✅ | ✅ |
+| بقاء الأكواد LTR | ✅ | ✅ |
+| تفعيل RTL | ⚠️ يدوي (Settings checkbox) | ✅ **تلقائي** عند اختيار العربية |
+| نقل Sidebar لليمين | ❌ (يسار دائماً) | ✅ `row-reverse` |
+| نقل Rail لليمين | ❌ | ✅ |
+| قلب Borders | ❌ | ✅ border-right↔border-left |
+| Mobile RTL animations | ❌ | ✅ sidebar slide mirrored |
+| خط عربي (ثمنية) | ❌ | ✅ 5 أوزان woff2 |
+| Resize handles mirrored | ❌ | ✅ |
+| Rail indicators mirrored | ❌ | ✅ |
+| Skin-specific RTL (nous) | ❌ | ✅ border dashed flip |
+| Composer placeholder RTL | ❌ | ✅ |
+| عدد قواعد RTL CSS | 33 | **209** |
+| لغات RTL المدعومة | 0 (يدوي فقط) | **ar, fa, he, ur, yi, dv, ps, syr, ku** |
+
+#### الملفات المعدّلة
+
 1. **`static/i18n.js`** (الترجمة):
    - كتلة `ar: { … }` بين `en` و `it` في كائن `LOCALES`
    - دالة `setLocale()` مُعدّلة: تفحص `RTL_LOCALES` وتفعّل `.chat-content-rtl` تلقائياً للعربية
