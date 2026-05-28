@@ -31,7 +31,17 @@ def _git(cwd, *args):
 
 def _init_repo(path):
     path.mkdir(parents=True, exist_ok=True)
-    _git(path, "init")
+    init = subprocess.run(
+        ["git", "init", "-b", "master"],
+        cwd=str(path),
+        shell=False,
+        text=True,
+        capture_output=True,
+        timeout=20,
+    )
+    if init.returncode != 0:
+        _git(path, "init")
+        _git(path, "checkout", "-B", "master")
     _git(path, "config", "user.email", "hermes-tests@example.invalid")
     _git(path, "config", "user.name", "Hermes Tests")
     return path
