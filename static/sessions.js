@@ -3866,10 +3866,10 @@ function renderSessionListFromCache(){
       const offset=Math.sign(rawOffset)*(Math.abs(revealedOffset)+Math.sqrt(overshoot)*5);
       const progress=Math.min(1,Math.abs(revealedOffset)/72);
       const reveal=Math.abs(offset);
-      const iconScale=Math.min(1,Math.max(.01,progress*1.12));
+      const iconScale=Math.min(1,Math.max(.01,progress*1.7));
       const badgeSize=34*iconScale;
       const iconSize=18*iconScale;
-      const labelScale=Math.min(1,Math.max(.01,progress*1.12));
+      const labelScale=Math.min(1,Math.max(.01,progress*1.7));
       const actionInset=0;
       const tileGap=6;
       const badgeStretch=Math.min(Math.max(0,reveal-34),overshoot*1.15,Math.max(0,reveal-badgeSize-actionInset-tileGap));
