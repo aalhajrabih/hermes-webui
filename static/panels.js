@@ -1145,7 +1145,7 @@ function _startCronWatch(jobId) {
   _cronWatchStart = Date.now();
   _cronWatchInterval = setInterval(async () => {
     try {
-      const data = await api(`/api/crons/status?job_id=${encodeURIComponent(jobId)}`);
+      const data = await api(`/api/crons/status?job_id=${encodeURIComponent(jobId)}`,{timeoutToast:false});
       if (!data.running) {
         _stopCronWatch();
         if (_currentCronDetail && _currentCronDetail.id === jobId) {
@@ -1200,7 +1200,7 @@ function _formatElapsed(seconds) {
 
 function _checkCronWatchOnDetail(jobId) {
   // When opening a detail view, check if job is running
-  api(`/api/crons/status?job_id=${encodeURIComponent(jobId)}`).then(data => {
+  api(`/api/crons/status?job_id=${encodeURIComponent(jobId)}`,{timeoutToast:false}).then(data => {
     if (data.running && _currentCronDetail && _currentCronDetail.id === jobId) {
       _startCronWatch(jobId);
     }
@@ -3203,11 +3203,12 @@ async function loadInsights(animate) {
   }
   const period = ($('insightsPeriod') || {}).value || '30';
   try {
-    const [data, wikiStatus] = await Promise.all([
+    const [data, wikiStatus, skillUsage] = await Promise.all([
       api(`/api/insights?days=${period}`),
       api('/api/wiki/status').catch(err => ({status:'error', error: err.message || String(err)})),
+      api('/api/skills/usage').catch(() => ({usage:{}, skill_names:[], total_invocations:0, unique_skills_used:0})),
     ]);
-    _renderInsights(data, box, wikiStatus);
+    _renderInsights(data, box, wikiStatus, skillUsage);
     if (typeof _syncSystemHealthMonitorVisibility === 'function') _syncSystemHealthMonitorVisibility();
     if (typeof pollSystemHealth === 'function') void pollSystemHealth();
   } catch(e) {
@@ -3360,7 +3361,26 @@ function _bucketDailyTokensForChart(rows) {
   return result;
 }
 
-function _renderInsights(d, box, wikiStatus) {
+function _renderSkillUsage(d) {
+  const usage = d.usage || {};
+  const skillNames = d.skill_names || [];
+  const totalInvocations = d.total_invocations || 0;
+  const uniqueUsed = d.unique_skills_used || 0;
+  const entries = Object.entries(usage)
+    .map(([name, meta]) => [name, Number(meta && meta.use_count) || 0, Number(meta && meta.view_count) || 0, Number(meta && meta.patch_count) || 0])
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
+  if (!entries.length) {
+    return `<div class="insights-card" id="skillUsageCard"><div class="insights-card-title">${esc(t('insights_skill_usage_title'))}</div><div class="insights-empty">${esc(t('insights_skill_usage_no_data'))}</div><div style="font-size:11px;color:var(--muted);margin-top:4px">${esc(t('insights_skill_usage_no_data_hint'))}</div></div>`;
+  }
+  const rows = entries.map(([name, useCount, viewCount, patchCount]) => {
+    const share = totalInvocations > 0 ? (useCount / totalInvocations * 100).toFixed(1) : '0.0';
+    return `<div class="insights-table-row"><span class="insights-model-name" title="${esc(name)}">${esc(name)}</span><span>${useCount}</span><span>${viewCount}</span><span>${patchCount}</span><span>${share}%</span></div>`;
+  }).join('');
+  return `<div class="insights-card" id="skillUsageCard"><div class="insights-card-title">${esc(t('insights_skill_usage_title'))}</div><div class="skill-usage-grid" style="margin-bottom:8px"><div><span>${esc(t('insights_skill_usage_total'))}</span><strong>${totalInvocations.toLocaleString()}</strong></div><div><span>${esc(t('insights_skill_usage_skills_used'))}</span><strong>${uniqueUsed}/${skillNames.length}</strong></div></div><div class="insights-table skill-usage-table"><div class="insights-table-head"><span>${esc(t('insights_skill_usage_col_skill'))}</span><span>${esc(t('insights_skill_usage_col_uses'))}</span><span>${esc(t('insights_skill_usage_col_views'))}</span><span>${esc(t('insights_skill_usage_col_patches'))}</span><span>${esc(t('insights_skill_usage_col_share'))}</span></div>${rows}</div><div class="wiki-status-footer" style="margin-top:8px">${esc(t('insights_skill_usage_footer'))}</div></div>`;
+}
+
+function _renderInsights(d, box, wikiStatus, skillUsage) {
   const fmtNum = n => Number(n || 0).toLocaleString();
   const fmtCost = c => {
     const value = Number(c || 0);
@@ -3464,6 +3484,7 @@ function _renderInsights(d, box, wikiStatus) {
   box.innerHTML = `
     ${_renderSystemHealthPanel()}
     ${_renderLlmWikiStatus(wikiStatus)}
+    ${_renderSkillUsage(skillUsage)}
     <div class="insights-grid">
       ${overviewCards.map(c => `<div class="insights-stat"><div class="insights-stat-icon">${c.icon}</div><div class="insights-stat-info"><div class="insights-stat-value">${c.value}</div><div class="insights-stat-label">${esc(c.label)}</div></div></div>`).join('')}
     </div>
@@ -3619,6 +3640,19 @@ function _stripYamlFrontmatter(content) {
   return { frontmatter: m[1], body: content.slice(m[0].length) };
 }
 
+function _skillMarkdownHtml(markdown) {
+  return `<div class="preview-md">${renderMd(markdown || '')}</div>`;
+}
+
+function _enhanceSkillMarkdown(root) {
+  if (!root) return;
+  requestAnimationFrame(() => {
+    const mdRoot = root.querySelector('.preview-md') || root;
+    if (typeof highlightCode === 'function') highlightCode(mdRoot);
+    if (typeof renderKatexBlocks === 'function') renderKatexBlocks(mdRoot);
+  });
+}
+
 function _renderSkillDetail(name, content, linkedFiles) {
   const title = $('skillDetailTitle');
   const body = $('skillDetailBody');
@@ -3631,7 +3665,7 @@ function _renderSkillDetail(name, content, linkedFiles) {
   if (frontmatter) {
     html += `<details class="skill-frontmatter"><summary>${esc(t('skill_metadata'))}</summary><pre><code>${esc(frontmatter)}</code></pre></details>`;
   }
-  html += renderMd(markdownBody || '(no content)');
+  html += _skillMarkdownHtml(markdownBody || '(no content)');
   const lf = linkedFiles || {};
   const categories = Object.entries(lf).filter(([,files]) => files && files.length > 0);
   if (categories.length) {
@@ -3646,6 +3680,7 @@ function _renderSkillDetail(name, content, linkedFiles) {
     html += '</div>';
   }
   body.innerHTML = `<div class="main-view-content skill-detail-content">${html}</div>`;
+  _enhanceSkillMarkdown(body);
   body.querySelectorAll('.skill-linked-file').forEach(a => {
     a.addEventListener('click', e => { e.preventDefault(); openSkillFile(a.dataset.skillName, a.dataset.skillFile); });
   });
@@ -3717,7 +3752,7 @@ async function openSkillFile(skillName, filePath) {
     const header = `<div class="skill-file-breadcrumb"><a href="#" class="skill-file-back" data-skill-name="${esc(skillName)}">&larr; ${esc(backLabel)}</a><span class="skill-file-path">${esc(filePath)}</span></div>`;
     let content;
     if (isMd) {
-      content = `<div class="main-view-content">${renderMd(data.content || '')}</div>`;
+      content = `<div class="main-view-content">${_skillMarkdownHtml(data.content || '')}</div>`;
     } else {
       const escaped = esc(data.content || '');
       content = `<pre class="skill-file-code"><code>${escaped}</code></pre>`;
@@ -3736,7 +3771,8 @@ async function openSkillFile(skillName, filePath) {
         }
       });
     });
-    if (!isMd) requestAnimationFrame(() => { if (typeof highlightCode === 'function') highlightCode(); });
+    if (isMd) _enhanceSkillMarkdown(body);
+    else requestAnimationFrame(() => { if (typeof highlightCode === 'function') highlightCode(); });
   } catch(e) { setStatus(t('skill_file_load_failed') + e.message); }
 }
 
@@ -4999,7 +5035,7 @@ async function loadProfilesPanel() {
       const meta = [];
       if (p.model) meta.push(p.model.split('/').pop());
       if (p.provider) meta.push(p.provider);
-      if (p.skill_count) meta.push(t('profile_skill_count', p.skill_count));
+      if (p.total_skills && p.total_skills > 0) meta.push(t('profile_skill_count', p.total_skills).replace(String(p.total_skills), `${p.enabled_skills} / ${p.total_skills}`));
       const gwDot = p.gateway_running
         ? `<span class="profile-opt-badge running" title="${esc(t('profile_gateway_running'))}"></span>`
         : `<span class="profile-opt-badge stopped" title="${esc(t('profile_gateway_stopped'))}"></span>`;
@@ -5073,7 +5109,7 @@ function _renderProfileDetail(p, activeName){
   if (p.provider) rows.push(`<div class="detail-row"><div class="detail-row-label">Provider</div><div class="detail-row-value">${esc(p.provider)}</div></div>`);
   if (p.base_url) rows.push(`<div class="detail-row"><div class="detail-row-label">Base URL</div><div class="detail-row-value"><code>${esc(p.base_url)}</code></div></div>`);
   rows.push(`<div class="detail-row"><div class="detail-row-label">API key</div><div class="detail-row-value">${p.has_env ? esc(t('profile_api_keys_configured')) : '<span style="color:var(--muted)">Not configured</span>'}</div></div>`);
-  if (typeof p.skill_count === 'number') rows.push(`<div class="detail-row"><div class="detail-row-label">Skills</div><div class="detail-row-value">${esc(t('profile_skill_count', p.skill_count))}</div></div>`);
+  if (p.total_skills && p.total_skills > 0) rows.push(`<div class="detail-row"><div class="detail-row-label">Skills</div><div class="detail-row-value">${esc(t('profile_skill_count', p.total_skills).replace(String(p.total_skills), `${p.enabled_skills} / ${p.total_skills}`))}</div></div>`);
   if (p.default_workspace) rows.push(`<div class="detail-row"><div class="detail-row-label">Default space</div><div class="detail-row-value"><code>${esc(p.default_workspace)}</code></div></div>`);
   body.innerHTML = `
     <div class="main-view-content">
@@ -5163,7 +5199,7 @@ function renderProfileDropdown(data) {
     opt.className = 'profile-opt' + (p.name === active ? ' active' : '');
     const meta = [];
     if (p.model) meta.push(p.model.split('/').pop());
-    if (p.skill_count) meta.push(t('profile_skill_count', p.skill_count));
+    if (p.total_skills && p.total_skills > 0) meta.push(t('profile_skill_count', p.total_skills).replace(String(p.total_skills), `${p.enabled_skills} / ${p.total_skills}`));
     const gwDot = `<span class="profile-opt-badge ${p.gateway_running ? 'running' : 'stopped'}"></span>`;
     const checkmark = p.name === active ? ' <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--link)" stroke-width="3" style="vertical-align:-1px"><polyline points="20 6 9 17 4 12"/></svg>' : '';
     const defaultBadge = p.is_default ? ` <span style="opacity:.5;font-weight:400">${esc(t('profile_default_label'))}</span>` : '';

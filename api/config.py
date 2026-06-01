@@ -26,22 +26,14 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 # ── Basic layout ──────────────────────────────────────────────────────────────
-HOME = Path.home()
+import api.paths as _paths
+
+HOME = _paths.HOME
+_hermes_home_has_webui_state = _paths._hermes_home_has_webui_state
+_platform_default_hermes_home = _paths._platform_default_hermes_home
+
 # REPO_ROOT is the directory that contains this file's parent (api/ -> repo root)
 REPO_ROOT = Path(__file__).parent.parent.resolve()
-
-
-def _platform_default_hermes_home() -> Path:
-    """Return the platform-aware default Hermes home when HERMES_HOME is unset.
-
-    Native Windows Hermes Agent installs default to %LOCALAPPDATA%\\hermes,
-    while POSIX installs use ~/.hermes.
-    """
-    if os.name == "nt":
-        local_app_data = os.getenv("LOCALAPPDATA", "").strip()
-        if local_app_data:
-            return Path(local_app_data) / "hermes"
-    return HOME / ".hermes"
 
 # ── Network config (env-overridable) ─────────────────────────────────────────
 HOST = os.getenv("HERMES_WEBUI_HOST", "127.0.0.1")
@@ -69,6 +61,12 @@ LAST_WORKSPACE_FILE = STATE_DIR / "last_workspace.txt"
 PROJECTS_FILE = STATE_DIR / "projects.json"
 
 logger = logging.getLogger(__name__)
+
+# Keep custom provider /v1/models probes below the frontend's generic request
+# timeout even when one upstream is slow or unreachable. The models cache rebuild
+# path probes configured custom endpoints serially, so each provider needs a
+# short hard cap and graceful degradation.
+CUSTOM_MODELS_ENDPOINT_TIMEOUT_SECONDS = 5.0
 
 
 def _env_mb_bytes(name: str, default_mb: int) -> int:
@@ -2067,7 +2065,7 @@ def get_effective_default_model(config_data: dict | None = None) -> str:
 # Mirrors hermes_constants.parse_reasoning_effort so WebUI can validate without
 # importing from the agent tree (which may not be installed).  Any drift here
 # will show up in the shared test suite since both sides accept the same set.
-VALID_REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
+VALID_REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max")
 
 
 def parse_reasoning_effort(effort):
@@ -2094,6 +2092,61 @@ def _strip_provider_hint_for_reasoning(model_id: str) -> str:
     if model.startswith("@") and ":" in model:
         return model.split(":", 1)[1]
     return model
+
+
+def _reasoning_name_candidates(model_id: str) -> list[str]:
+    """Return normalized model-name candidates for heuristic capability checks."""
+    bare = str(model_id or "").strip().lower().rsplit("/", 1)[-1]
+    if not bare:
+        return []
+
+    candidates: list[str] = []
+
+    def _add(value: str) -> None:
+        candidate = str(value or "").strip().lower()
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+
+    _add(bare)
+
+    dot_parts = [part for part in bare.split(".") if part]
+    if len(dot_parts) > 1:
+        # Try progressively stripping dot-separated vendor namespaces so inputs like
+        # "moonshotai.kimi-k2.5" and "vendor.deepseek.v3.2" both surface the real
+        # model family rather than treating every dot as part of the provider slug.
+        for index in range(1, len(dot_parts)):
+            suffix = ".".join(dot_parts[index:])
+            if any(ch.isalpha() for ch in suffix):
+                _add(suffix)
+
+    for candidate in list(candidates):
+        normalized = re.sub(r"[^a-z0-9]+", "-", candidate).strip("-")
+        _add(normalized)
+
+    return candidates
+
+
+def _candidate_supports_reasoning(candidate: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", "-", str(candidate or "").strip().lower()).strip("-")
+    if not normalized:
+        return False
+
+    tokens = [token for token in normalized.split("-") if token]
+    token_set = set(tokens)
+
+    if "thinking" in token_set or "reasoning" in token_set:
+        return True
+    if normalized in {"o1", "o3", "o4"} or normalized.startswith(("o1-", "o3-", "o4-")):
+        return True
+    if normalized.startswith(("kimi-k2", "kimi-thinking", "claude-3", "claude-4")):
+        return True
+    if normalized.startswith("qwen3") or "qwen3" in token_set:
+        return True
+    if normalized.startswith(("deepseek-v3", "deepseek-v4", "deepseek-r1", "deepseek-r2")):
+        return True
+    if len(tokens) >= 2 and tokens[0] == "deepseek" and tokens[1] in {"v3", "v4", "r1", "r2"}:
+        return True
+    return False
 
 
 def _heuristic_reasoning_efforts(model_id: str, provider_id: str) -> list[str]:
@@ -2125,7 +2178,45 @@ def _heuristic_reasoning_efforts(model_id: str, provider_id: str) -> list[str]:
     )
     if any(model.startswith(prefix) for prefix in prefixes):
         return list(VALID_REASONING_EFFORTS)
+    # Named custom providers often rewrite model ids with dots, underscores, or
+    # extra vendor namespaces. Normalize those shapes before applying family-level
+    # reasoning heuristics so "deepseek.v3.2", "deepseek_v4_flash", and
+    # "vendor.deepseek.v3.2" are treated consistently.
+    if any(_candidate_supports_reasoning(candidate) for candidate in _reasoning_name_candidates(bare)):
+        return list(VALID_REASONING_EFFORTS)
     return []
+
+
+def _models_dev_reasoning_efforts(model_id: str, provider_id: str) -> list[str] | None:
+    """Return reasoning efforts from Hermes Agent model metadata when known.
+
+    ``None`` means the metadata source is unavailable or has no answer, so the
+    caller should continue to compatibility fallbacks. A concrete list (including
+    ``[]``) is authoritative.
+    """
+    model = _strip_provider_hint_for_reasoning(model_id)
+    provider = str(provider_id or "").strip().lower()
+    if not model or not provider:
+        return None
+
+    try:
+        from agent.models_dev import get_model_capabilities
+    except Exception:
+        return None
+
+    try:
+        capabilities = get_model_capabilities(provider=provider, model=model)
+    except Exception:
+        return None
+    if capabilities is None:
+        return None
+
+    supports_reasoning = getattr(capabilities, "supports_reasoning", None)
+    if supports_reasoning is True:
+        return list(VALID_REASONING_EFFORTS)
+    if supports_reasoning is False:
+        return []
+    return None
 
 
 def resolve_model_reasoning_efforts(
@@ -2150,51 +2241,38 @@ def resolve_model_reasoning_efforts(
     if provider in {"cursor-acp", "copilot-acp"}:
         return []
 
+    hinted_model = _strip_provider_hint_for_reasoning(model)
+
     try:
         from hermes_cli.models import (
             github_model_reasoning_efforts,
             lmstudio_model_reasoning_options,
         )
     except Exception:
-        return _heuristic_reasoning_efforts(model, provider)
+        if provider in {"copilot", "github-copilot"}:
+            return _heuristic_reasoning_efforts(hinted_model, provider)
+    else:
+        if provider in {"copilot", "github-copilot"}:
+            return github_model_reasoning_efforts(hinted_model)
 
-    hinted_model = _strip_provider_hint_for_reasoning(model)
-    if provider in {"copilot", "github-copilot"}:
-        return github_model_reasoning_efforts(hinted_model)
-
-    if provider == "openai-codex":
-        bare = hinted_model.rsplit("/", 1)[-1]
-        return github_model_reasoning_efforts(bare)
-
-    if provider == "lmstudio":
-        probe_base = resolved_base_url or _get_provider_base_url(provider)
-        opts = lmstudio_model_reasoning_options(model, probe_base)
-        normalized = [str(opt).strip().lower() for opt in opts if str(opt).strip()]
-        if not normalized or set(normalized).issubset({"off"}):
+        if provider == "lmstudio":
+            probe_base = resolved_base_url or _get_provider_base_url(provider)
+            opts = lmstudio_model_reasoning_options(hinted_model, probe_base)
+            normalized = [str(opt).strip().lower() for opt in opts if str(opt).strip()]
+            if not normalized or set(normalized).issubset({"off"}):
+                return []
+            level_opts = [opt for opt in normalized if opt in VALID_REASONING_EFFORTS]
+            if level_opts:
+                return list(dict.fromkeys(level_opts))
+            if set(normalized).issubset({"off", "on"}):
+                return []
             return []
-        level_opts = [opt for opt in normalized if opt in VALID_REASONING_EFFORTS]
-        if level_opts:
-            return list(dict.fromkeys(level_opts))
-        if set(normalized).issubset({"off", "on"}):
-            return []
-        return []
 
-    model_lower = model.lower()
-    prefixes = (
-        "deepseek/",
-        "anthropic/",
-        "openai/",
-        "x-ai/",
-        "google/gemini-2",
-        "google/gemma-4",
-        "qwen/qwen3",
-        "tencent/hy3-preview",
-        "xiaomi/",
-    )
-    if any(model_lower.startswith(prefix) for prefix in prefixes):
-        return list(VALID_REASONING_EFFORTS)
+    metadata_efforts = _models_dev_reasoning_efforts(hinted_model, provider)
+    if metadata_efforts is not None:
+        return metadata_efforts
 
-    return []
+    return _heuristic_reasoning_efforts(hinted_model, provider)
 
 
 def get_reasoning_status(
@@ -2215,10 +2293,23 @@ def get_reasoning_status(
     agent_cfg = config_data.get("agent") or {}
     show_raw = display_cfg.get("show_reasoning") if isinstance(display_cfg, dict) else None
     effort_raw = agent_cfg.get("reasoning_effort") if isinstance(agent_cfg, dict) else None
+
+    resolve_model = model_id
+    resolve_provider = provider_id
+    resolve_base_url = base_url
+    if not resolve_model:
+        model_cfg = config_data.get("model") or {}
+        if isinstance(model_cfg, dict):
+            resolve_model = str(model_cfg.get("default") or "").strip() or None
+            if not resolve_provider and model_cfg.get("provider"):
+                resolve_provider = str(model_cfg["provider"]).strip()
+            if not resolve_base_url and model_cfg.get("base_url"):
+                resolve_base_url = str(model_cfg["base_url"]).strip()
+
     supported_efforts = resolve_model_reasoning_efforts(
-        model_id,
-        provider_id=provider_id,
-        base_url=base_url,
+        resolve_model,
+        provider_id=resolve_provider,
+        base_url=resolve_base_url,
     )
     return {
         # Match CLI default (True if unset in config.yaml)
@@ -2463,7 +2554,7 @@ _cache_build_in_progress = False  # True while a cold path is actively building
 # session is expensive (~10s for zai due to endpoint probing).  The credential pool
 # only changes when the user adds/removes credentials, which is rare; a 24h TTL
 # is plenty safe and ensures get_available_models() cold paths are fast.
-_CREDENTIAL_POOL_CACHE: dict[str, tuple[float, "CredentialPool"]] = {}  # pid -> (ts, pool)
+_CREDENTIAL_POOL_CACHE: dict[str, tuple[float, "CredentialPool"]] = {}  # noqa: F821  forward-ref string annotation, resolved at runtime  # pid -> (ts, pool)
 _provider_models_invalidated_ts: dict[str, float] = {}  # provider_id -> timestamp of last invalidation
 
 # Disk-backed in-memory cache for get_available_models().
@@ -3399,6 +3490,7 @@ def get_available_models() -> dict:
                 "XIAOMI_API_KEY",
                 "OPENCODE_ZEN_API_KEY",
                 "OPENCODE_GO_API_KEY",
+                "OPENCODE_API_KEY",
                 "MINIMAX_API_KEY",
                 "MINIMAX_CN_API_KEY",
                 "XAI_API_KEY",
@@ -3440,9 +3532,9 @@ def get_available_models() -> dict:
                 detected_providers.add("x-ai")
             if all_env.get("MISTRAL_API_KEY"):
                 detected_providers.add("mistralai")
-            if all_env.get("OPENCODE_ZEN_API_KEY"):
+            if all_env.get("OPENCODE_ZEN_API_KEY") or all_env.get("OPENCODE_API_KEY"):
                 detected_providers.add("opencode-zen")
-            if all_env.get("OPENCODE_GO_API_KEY"):
+            if all_env.get("OPENCODE_GO_API_KEY") or all_env.get("OPENCODE_API_KEY"):
                 detected_providers.add("opencode-go")
             # AWS Bedrock uses IAM credentials rather than a single API key.
             # Detect when both access key and secret are available (#2720).
@@ -3653,7 +3745,7 @@ def get_available_models() -> dict:
                 req.add_header("User-Agent", "OpenAI/Python 1.0")
                 for k, v in headers.items():
                     req.add_header(k, v)
-                with urllib.request.urlopen(req, timeout=10) as response:  # nosec B310
+                with urllib.request.urlopen(req, timeout=CUSTOM_MODELS_ENDPOINT_TIMEOUT_SECONDS) as response:  # nosec B310
                     data = json.loads(response.read().decode("utf-8"))
                 return _extract_model_entries_from_payload(data, provider), None
             except urllib.error.HTTPError as exc:
