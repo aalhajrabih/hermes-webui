@@ -3,6 +3,11 @@
 
 ## [Unreleased]
 
+## [v0.51.204] — 2026-06-01 — Release FX (stage-batch17 — project/session operations honor the session's own profile)
+
+### Fixed
+- Project and session operations (project create/rename/recolor/delete/unassign, session move, and the profile chip label) now key on the session's own profile (`S.session.profile`) instead of the global active profile, so switching between sessions from different profiles no longer causes silent 404s, misleading chip labels, or project-picker entries from the wrong profile. The project picker also filters to the session's profile and surfaces an error toast on failure instead of a silent no-op (#3331, @PINKIIILQWQ).
+
 ## [v0.51.203] — 2026-06-01 — Release FW (stage-batch15 — sticky manual unpin for streaming chat scroll)
 
 ### Changed
