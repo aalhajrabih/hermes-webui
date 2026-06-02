@@ -2900,7 +2900,29 @@ function getModelLabel(modelId){
   if(STATIC_LABELS[modelId]) return STATIC_LABELS[modelId];
   // Safe Ollama-tag fallback: strip only the first slash-segment (provider
   // prefix) so multi-slash IDs preserve their vendor hierarchy (#3360).
-  let _last = modelId.includes('/') ? (modelId.slice(modelId.indexOf('/')+1) || modelId) : modelId;
+  // URI-scheme ids (e.g. `gpt://${FOLDER}/deepseek-v4-flash/latest`, provider
+  // `yandex:gpt`) must NOT be first-segment-stripped — `indexOf('/')` would
+  // land inside the `://` and leave `/${FOLDER}/...` path junk (#3429). For a
+  // `scheme://` id, drop the scheme + authority and take the last meaningful
+  // path segment (ignoring a bare version tail like `latest`/`stable`).
+  let _last;
+  const _uriMatch = /^[a-z][a-z0-9+.-]*:\/\/(.+)$/i.exec(modelId);
+  if (_uriMatch) {
+    const _segs = _uriMatch[1].split('/').filter(Boolean);
+    const _isVersionTail = (s) => /^(latest|stable|current|default|v?\d[\w.-]*)$/i.test(s);
+    let _pick = '';
+    for (let _i = _segs.length - 1; _i >= 0; _i--) {
+      // Skip env-var placeholders (${...}) and bare version tails; prefer the
+      // last segment that actually looks like a model name.
+      if (/\$\{[^}]*\}/.test(_segs[_i])) continue;
+      if (_isVersionTail(_segs[_i]) && _pick) continue;
+      if (!_pick) _pick = _segs[_i];
+      if (!_isVersionTail(_segs[_i])) { _pick = _segs[_i]; break; }
+    }
+    _last = _pick || _segs[_segs.length - 1] || modelId;
+  } else {
+    _last = modelId.includes('/') ? (modelId.slice(modelId.indexOf('/')+1) || modelId) : modelId;
+  }
   // Strip @provider: prefix if present (e.g. @ollama-cloud:kimi-k2.6)
   if (_last.startsWith('@') && _last.includes(':')) _last = _last.split(':').slice(1).join(':');
   const looksLikeOllamaTag = /^[a-z0-9][\w.-]*:[\w.-]+$/i.test(_last);
