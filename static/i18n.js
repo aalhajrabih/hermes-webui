@@ -553,7 +553,7 @@ const LOCALES = {
     settings_tab_preferences: 'Preferences',
     settings_tab_plugins: 'Plugins',
     settings_plugins_title: 'Plugins',
-    settings_plugins_enable_toggle: 'Enable',
+    plugins_enable_toggle: 'Enable',
     settings_plugins_meta: 'View installed Hermes plugins and the lifecycle hooks they register. This panel is read-only.',
     settings_plugins_empty: 'No Hermes plugins are currently visible. Install or enable plugins from the Hermes CLI/config to see them here.',
     plugins_unnamed: 'Unnamed plugin',
@@ -1884,6 +1884,7 @@ const LOCALES = {
     settings_tab_preferences: 'Preferenze',
     settings_tab_plugins: 'Plugin',
     settings_plugins_title: 'Plugins',  // TODO: translate
+    plugins_enable_toggle: 'Abilita',
     settings_plugins_meta: 'View installed Hermes plugins and the lifecycle hooks they register. This panel is read-only.',  // TODO: translate
     settings_plugins_empty: 'No Hermes plugins are currently visible. Install or enable plugins from the Hermes CLI/config to see them here.',  // TODO: translate
     plugins_unnamed: 'Unnamed plugin',  // TODO: translate
@@ -3206,6 +3207,7 @@ const LOCALES = {
     settings_tab_preferences: '環境設定',
     settings_tab_plugins: 'プラグイン',
     settings_plugins_title: 'Plugins',  // TODO: translate
+    plugins_enable_toggle: '有効化',
     settings_plugins_meta: 'View installed Hermes plugins and the lifecycle hooks they register. This panel is read-only.',  // TODO: translate
     settings_plugins_empty: 'No Hermes plugins are currently visible. Install or enable plugins from the Hermes CLI/config to see them here.',  // TODO: translate
     plugins_unnamed: 'Unnamed plugin',  // TODO: translate
@@ -5098,6 +5100,7 @@ const LOCALES = {
     settings_tab_preferences: 'Preferences',
     settings_tab_plugins: 'Плагины',
     settings_plugins_title: 'Plugins',  // TODO: translate
+    plugins_enable_toggle: 'Включить',
     settings_plugins_meta: 'View installed Hermes plugins and the lifecycle hooks they register. This panel is read-only.',  // TODO: translate
     settings_plugins_empty: 'No Hermes plugins are currently visible. Install or enable plugins from the Hermes CLI/config to see them here.',  // TODO: translate
     plugins_unnamed: 'Unnamed plugin',  // TODO: translate
@@ -6345,6 +6348,7 @@ const LOCALES = {
     settings_tab_preferences: 'Preferences',
     settings_tab_plugins: 'Plugins',
     settings_plugins_title: 'Plugins',  // TODO: translate
+    plugins_enable_toggle: 'Activar',
     settings_plugins_meta: 'View installed Hermes plugins and the lifecycle hooks they register. This panel is read-only.',  // TODO: translate
     settings_plugins_empty: 'No Hermes plugins are currently visible. Install or enable plugins from the Hermes CLI/config to see them here.',  // TODO: translate
     plugins_unnamed: 'Unnamed plugin',  // TODO: translate
@@ -7308,6 +7312,7 @@ const LOCALES = {
     settings_tab_preferences: 'Preferences',
     settings_tab_plugins: 'Plugins',
     settings_plugins_title: 'Plugins',  // TODO: translate
+    plugins_enable_toggle: 'Aktivieren',
     settings_plugins_meta: 'View installed Hermes plugins and the lifecycle hooks they register. This panel is read-only.',  // TODO: translate
     settings_plugins_empty: 'No Hermes plugins are currently visible. Install or enable plugins from the Hermes CLI/config to see them here.',  // TODO: translate
     plugins_unnamed: 'Unnamed plugin',  // TODO: translate
@@ -8024,6 +8029,7 @@ const LOCALES = {
     settings_busy_input_mode_interrupt: '中断当前轮次',
     settings_busy_input_mode_steer: '引导（中间修正）',
     settings_plugins_title: '插件',
+    plugins_enable_toggle: '启用',
     settings_plugins_meta: '查看已安装的 Hermes 插件及其注册的生命周期挂钩。此面板为只读。',
     settings_plugins_empty: '当前没有可见的 Hermes 插件。通过 Hermes CLI/配置文件安装或启用插件后即可在此查看。',
     plugins_unnamed: '未命名插件',
@@ -9386,6 +9392,7 @@ const LOCALES = {
     settings_tab_preferences: '偏好設定',
     settings_tab_plugins: '外掛',
     settings_plugins_title: '外掛',
+    plugins_enable_toggle: '啟用',
     settings_plugins_meta: '檢視已安裝的 Hermes 外掛及其註冊的生命週期鉤子。此面板為唯讀。',
     settings_plugins_empty: '目前沒有可見的 Hermes 外掛。透過 Hermes CLI/設定檔安裝或啟用外掛後即可在此檢視。',
     plugins_unnamed: '未命名外掛',
@@ -10786,6 +10793,7 @@ const LOCALES = {
     settings_tab_preferences: 'Preferências',
     settings_tab_plugins: 'Plugins',
     settings_plugins_title: 'Plugins',  // TODO: translate
+    plugins_enable_toggle: 'Ativar',
     settings_plugins_meta: 'View installed Hermes plugins and the lifecycle hooks they register. This panel is read-only.',  // TODO: translate
     settings_plugins_empty: 'No Hermes plugins are currently visible. Install or enable plugins from the Hermes CLI/config to see them here.',  // TODO: translate
     plugins_unnamed: 'Unnamed plugin',  // TODO: translate
@@ -12010,6 +12018,7 @@ const LOCALES = {
     settings_tab_preferences: '환경설정',
     settings_tab_plugins: '플러그인',
     settings_plugins_title: 'Plugins',  // TODO: translate
+    plugins_enable_toggle: '활성화',
     settings_plugins_meta: 'View installed Hermes plugins and the lifecycle hooks they register. This panel is read-only.',  // TODO: translate
     settings_plugins_empty: 'No Hermes plugins are currently visible. Install or enable plugins from the Hermes CLI/config to see them here.',  // TODO: translate
     plugins_unnamed: 'Unnamed plugin',  // TODO: translate
@@ -13249,6 +13258,7 @@ const LOCALES = {
     settings_tab_preferences: 'Préférences',
     settings_tab_plugins: 'Plugins',
     settings_plugins_title: 'Plugins',  // TODO: translate
+    plugins_enable_toggle: 'Activer',
     settings_plugins_meta: 'View installed Hermes plugins and the lifecycle hooks they register. This panel is read-only.',  // TODO: translate
     settings_plugins_empty: 'No Hermes plugins are currently visible. Install or enable plugins from the Hermes CLI/config to see them here.',  // TODO: translate
     plugins_unnamed: 'Unnamed plugin',  // TODO: translate
@@ -14590,6 +14600,7 @@ const LOCALES = {
     settings_tab_preferences: 'Tercihler',
     settings_tab_plugins: 'Eklentiler',
     settings_plugins_title: 'Eklentiler',
+    plugins_enable_toggle: 'Etkinleştir',
     settings_plugins_meta: 'Yüklü Hermes eklentilerini ve yaşam döngüsü kancalarını görüntüleyin. Bu panel salt okunurdur.',
     settings_plugins_empty: 'Görünür Hermes eklentisi yok. Burada görmek için Hermes CLI/config üzerinden yükleyin veya etkinleştirin.',
     plugins_unnamed: 'Adsız eklenti',

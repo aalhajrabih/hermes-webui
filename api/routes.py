@@ -4064,6 +4064,21 @@ def _plugin_visibility_payload(manager=None) -> dict:
 
 
 # WebUI dashboard plugins (from manifest.json discovery)
+def _dashboard_plugin_enabled(plugin_name: str) -> bool:
+    """True if a dashboard plugin is enabled in settings.
+
+    Dashboard plugins are opt-in (default off). Enforced server-side so a
+    disabled plugin's page + asset URLs are fully 404'd, not merely hidden in
+    the Settings UI.
+    """
+    try:
+        from api.config import load_settings
+        prefs = (load_settings() or {}).get("dashboard_plugins", {}) or {}
+        return bool(prefs.get(plugin_name, False))
+    except Exception:
+        return False
+
+
 def _webui_plugin_payload() -> list[dict]:
     try:
         from api.plugins import get_plugin_metadata
@@ -5480,12 +5495,23 @@ def handle_get(handler, parsed) -> bool:
         if len(parts) >= 3:
             plugin_name = parts[2]
             rel_path = parts[3] if len(parts) > 3 else ""
+            # Server-side enable-gate: a plugin disabled in Settings must have its
+            # entire URL surface shut off, not merely hidden in the UI.
+            if not _dashboard_plugin_enabled(plugin_name):
+                return False  # 404 — disabled plugins serve nothing
             from api.plugins import serve_plugin_static
             result = serve_plugin_static(plugin_name, rel_path)
             if result:
                 data, content_type = result
                 handler.send_response(200)
                 handler.send_header("Content-Type", content_type)
+                # Defense-in-depth: plugin-controlled assets are served from the
+                # WebUI's own origin. Sandbox them (null origin) so a plugin's
+                # .html/.svg can't run privileged same-origin script if navigated
+                # to directly (the in-panel iframe sandbox doesn't cover direct
+                # navigation). nosniff prevents content-type confusion.
+                handler.send_header("Content-Security-Policy", "sandbox allow-scripts allow-forms allow-popups")
+                handler.send_header("X-Content-Type-Options", "nosniff")
                 handler.send_header("Content-Length", str(len(data)))
                 handler.end_headers()
                 handler.wfile.write(data)
@@ -5497,6 +5523,9 @@ def handle_get(handler, parsed) -> bool:
         tab = manifest.get("tab", {})
         tab_path = tab.get("path", f"/{name}")
         if parsed.path == tab_path:
+            # Server-side enable-gate (opt-in): a disabled plugin's page 404s.
+            if not _dashboard_plugin_enabled(name):
+                return False
             dashboard_dir = _PLUGIN_STATIC_ROOTS.get(name)
             if dashboard_dir:
                 # 1) dashboard/dist/index.html (full SPA build)
