@@ -245,6 +245,7 @@ def _webui_surface_context_prompt(surface_context: Optional[dict]) -> str:
 def _webui_ephemeral_system_prompt(
     personality_prompt: Optional[str],
     surface_context: Optional[dict] = None,
+    config_data: Optional[dict] = None,
 ) -> str:
     """Build WebUI-only runtime instructions that are not persisted to history."""
     parts = []
@@ -254,6 +255,9 @@ def _webui_ephemeral_system_prompt(
     if surface_prompt:
         parts.append(surface_prompt)
     parts.append(_WEBUI_PROGRESS_PROMPT)
+    delivery_prompt = _webui_delivery_context_prompt(config_data)
+    if delivery_prompt:
+        parts.append(delivery_prompt)
     return "\n\n".join(part for part in parts if part)
 
 
@@ -498,48 +502,45 @@ def _public_prefill_context_status(prefill_context: dict) -> dict:
     }
 
 
-def _webui_session_context_message(config_data: Optional[dict] = None) -> dict:
-    """Return a compact browser-session context message for WebUI agents.
+def _webui_delivery_context_prompt(config_data: Optional[dict] = None) -> str:
+    """Return platform/delivery context for the ephemeral system prompt.
 
-    Messaging gateway sessions get a small "Current Session Context" block that
-    tells the agent where the turn came from, which platforms are connected, and
-    how scheduled-task delivery should be interpreted. Browser-originated WebUI
-    turns do not have a Gateway ``SessionSource``, but they still benefit from a
-    safe equivalent so the model understands that this is a WebUI session, not a
-    literal Telegram thread, while retaining access to configured messaging
-    delivery targets.
+    Connected platforms, home channels, and scheduled-task delivery hints
+    are injected into the system prompt (safe for role alternation) rather
+    than as a prefill ``user`` message, which strict chat templates (Mistral,
+    Gemma) reject.
+
+    NOTE: This function only covers platform/delivery info.  The session
+    framing (\"Source: WebUI\", \"Session ID\", \"Profile\", \"Workspace\") is
+    emitted by ``_webui_surface_context_prompt()``, which is called from
+    ``_webui_ephemeral_system_prompt()`` before this helper.  If you
+    refactor this area, keep that surface call in place — the two helpers
+    together produce the full session context block.
     """
     cfg = config_data if isinstance(config_data, dict) else get_config()
-    lines = [
-        "## Current Session Context",
-        "",
-        "**Source:** WebUI (browser session)",
-        "**Session type:** Browser-originated Hermes WebUI chat. This is a separate WebUI transcript, not the same live Telegram/Discord/other messaging thread.",
-    ]
+    lines: list[str] = []
 
+    display_hermes_home = None
     try:
-        from api.profiles import get_active_profile_name
-
-        profile_name = get_active_profile_name() or "default"
+        from hermes_constants import get_hermes_home, display_hermes_home as _dh
+        display_hermes_home = _dh
     except Exception:
-        profile_name = "default"
-    lines.append(f"**Active Hermes profile:** {profile_name}")
+        get_hermes_home = None  # type: ignore[assignment]
 
     connected = ["local (files on this machine)"]
     try:
-        from hermes_constants import get_hermes_home, display_hermes_home
-
-        state_path = get_hermes_home() / "gateway_state.json"
-        if state_path.exists():
-            raw_state = json.loads(state_path.read_text(encoding="utf-8"))
-            platforms = raw_state.get("platforms") if isinstance(raw_state, dict) else {}
-            if isinstance(platforms, dict):
-                for name in sorted(platforms):
-                    pdata = platforms.get(name) or {}
-                    if isinstance(pdata, dict) and pdata.get("state") == "connected" and name != "local":
-                        connected.append(f"{name}: Connected ✓")
+        if get_hermes_home is not None:
+            state_path = get_hermes_home() / "gateway_state.json"
+            if state_path.exists():
+                raw_state = json.loads(state_path.read_text(encoding="utf-8"))
+                platforms = raw_state.get("platforms") if isinstance(raw_state, dict) else {}
+                if isinstance(platforms, dict):
+                    for name in sorted(platforms):
+                        pdata = platforms.get(name) or {}
+                        if isinstance(pdata, dict) and pdata.get("state") == "connected" and name != "local":
+                            connected.append(f"{name}: Connected ✓")
     except Exception:
-        display_hermes_home = None  # type: ignore[assignment]
+        pass
     lines.append(f"**Connected Platforms:** {', '.join(connected)}")
 
     home_channels = {}
@@ -567,7 +568,7 @@ def _webui_session_context_message(config_data: Optional[dict] = None) -> dict:
     lines.append("**Delivery options for scheduled tasks:**")
     lines.append("- `\"origin\"` → Back to this WebUI/browser session when the WebUI runtime supports origin delivery; otherwise prefer an explicit platform target.")
     try:
-        home_display = display_hermes_home() if display_hermes_home else "~/.hermes"  # type: ignore[name-defined]
+        home_display = display_hermes_home() if display_hermes_home else "~/.hermes"
     except Exception:
         home_display = "~/.hermes"
     lines.append(f"- `\"local\"` → Save to local files only ({home_display}/cron/output/)")
@@ -576,14 +577,19 @@ def _webui_session_context_message(config_data: Optional[dict] = None) -> dict:
     lines.append("")
     lines.append("*For explicit targeting, use `\"platform:chat_id\"` format if the user provides a specific chat ID. Do not invent private IDs.*")
 
-    return {"role": "user", "content": "\n".join(lines)}
+    return "\n".join(lines)
 
 
 def _prefill_messages_with_webui_context(prefill_context: dict, config_data: Optional[dict] = None) -> list[dict]:
-    """Combine recall prefill with WebUI's gateway-like session context."""
-    messages = list(prefill_context.get("messages") or [])
-    messages.append(_webui_session_context_message(config_data))
-    return messages
+    """Combine recall prefill with WebUI session context.
+
+    The session context (connected platforms, delivery hints) is injected
+    via ``_webui_ephemeral_system_prompt`` / ``ephemeral_system_prompt``
+    instead of as a prefill ``user`` message.  Adding it as a user message
+    creates two consecutive user turns (prefill + actual) which strict chat
+    templates (Mistral, Gemma) reject with a Jinja 500.
+    """
+    return list(prefill_context.get("messages") or [])
 
 
 def _has_new_assistant_reply(all_messages: list, prev_count: int) -> bool:
@@ -5198,6 +5204,7 @@ def _run_agent_streaming(
                     'profile': getattr(s, 'profile', None),
                     'workspace': s.workspace,
                 },
+                config_data=_cfg,
             )
             _pending_started_at = getattr(s, 'pending_started_at', None)
             # Normal chat-start sets pending_started_at before spawning this thread;

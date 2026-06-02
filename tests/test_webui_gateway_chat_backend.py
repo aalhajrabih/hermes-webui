@@ -285,15 +285,23 @@ def test_gateway_chat_worker_translates_sse_and_persists_session(tmp_path, monke
     assert captured["headers"]["X-hermes-session-key"] == f"webui:{s.session_id}"
     assert '"stream": true' in captured["body"]
     payload = json.loads(captured["body"])
-    assert [m["content"] for m in payload["messages"]] == [
-        streaming._WEBUI_PROGRESS_PROMPT,
+    # #3324: the gateway path's first system message is now the full WebUI
+    # ephemeral system prompt (progress prompt + session/delivery context),
+    # NOT the bare _WEBUI_PROGRESS_PROMPT — otherwise the delivery/session
+    # context is silently dropped on Gateway-routed WebUI chats.
+    system_msg = payload["messages"][0]
+    assert system_msg["role"] == "system"
+    assert "Final visible assistant replies" in system_msg["content"]
+    assert "Need script" in system_msg["content"]
+    # The moved session/delivery context must be present in the system prompt.
+    assert "Connected Platforms:" in system_msg["content"]
+    assert "Delivery options for scheduled tasks:" in system_msg["content"]
+    # The recall prefill + the actual user turn follow the system message.
+    assert [m["content"] for m in payload["messages"][1:]] == [
         "prefill",
         "webui session context",
         "Say hello",
     ]
-    assert payload["messages"][0]["role"] == "system"
-    assert "Final visible assistant replies" in payload["messages"][0]["content"]
-    assert "Need script" in payload["messages"][0]["content"]
     events = []
     while not subscriber.empty():
         events.append(subscriber.get_nowait())

@@ -247,15 +247,30 @@ def _run_gateway_chat_streaming(
         cfg = get_config()
         try:
             from api.streaming import (
-                _WEBUI_PROGRESS_PROMPT,
                 _load_webui_prefill_context,
                 _prefill_messages_with_webui_context,
                 _public_prefill_context_status,
+                _webui_ephemeral_system_prompt,
             )
 
             prefill_context = _load_webui_prefill_context(cfg)
+            # #3324: the WebUI session/delivery context (connected platforms,
+            # home channels, delivery hints, session framing) is now carried in
+            # the ephemeral system prompt rather than a prefill `user` message.
+            # The gateway-backed path must build the SAME system prompt so that
+            # context is not silently dropped on Gateway-routed WebUI chats.
+            _gateway_system_prompt = _webui_ephemeral_system_prompt(
+                None,
+                surface_context={
+                    "source": "webui",
+                    "session_id": session_id,
+                    "profile": getattr(s, "profile", None),
+                    "workspace": s.workspace if s is not None else str(workspace),
+                },
+                config_data=cfg,
+            )
             prefill_messages = [
-                {"role": "system", "content": _WEBUI_PROGRESS_PROMPT},
+                {"role": "system", "content": _gateway_system_prompt},
                 *_prefill_messages_with_webui_context(prefill_context, cfg),
             ]
             put_gateway_event("context_status", {
