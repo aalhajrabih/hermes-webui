@@ -5127,6 +5127,7 @@ _SETTINGS_SKIN_VALUES = {
     "nous",
     "geist-contrast",
     "zeus",
+    "verdigris",
 }
 _SETTINGS_LEGACY_THEME_MAP = {
     # Legacy full themes now map onto the closest supported theme + accent skin pair.
