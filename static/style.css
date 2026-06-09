@@ -2289,6 +2289,9 @@
     .composer-left > .composer-model-wrap,
     .composer-left > .composer-reasoning-wrap,
     .composer-left > .composer-toolsets-wrap{display:none!important;}
+    /* Saved prompts is a desktop-only composer affordance — too much for the
+       narrow mobile composer (Nathan 2026-06-09). Hide the button + popup. */
+    #btnSavedPrompts,.saved-prompts-popup{display:none!important;}
     .composer-mobile-config-btn{box-sizing:border-box;position:relative;display:inline-flex!important;width:44px;height:44px;min-width:44px;min-height:44px;flex-shrink:0;}
     .composer-mobile-config-panel.open{display:flex;}
     .composer-mobile-config-action{flex:1 1 0;min-height:44px;min-width:0;background:var(--input-bg);border-color:var(--border);}
@@ -2384,6 +2387,9 @@
     .composer-left > .composer-model-wrap,
     .composer-left > .composer-reasoning-wrap,
     .composer-left > .composer-toolsets-wrap{display:none!important;}
+    /* Saved prompts is a desktop-only composer affordance — too much for the
+       narrow mobile composer (Nathan 2026-06-09). Hide the button + popup. */
+    #btnSavedPrompts,.saved-prompts-popup{display:none!important;}
     .composer-mobile-config-btn{box-sizing:border-box;position:relative;display:inline-flex!important;width:44px;height:44px;min-width:44px;min-height:44px;flex-shrink:0;}
     .composer-mobile-config-panel.open{display:flex;}
     .composer-mobile-config-action{box-sizing:border-box;flex:1 1 0;min-height:44px;min-width:0;background:var(--input-bg);border-color:var(--border);}
@@ -4172,6 +4178,18 @@ main.main > #mainPlugin{display:none;}
 /* Lives as a flex sibling in .session-title-row (between title and time);
    the row's gap:6px handles spacing, no margin/vertical-align needed. */
 .session-project-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;display:inline-block;}
+
+/* ── Saved prompts popup ── */
+.saved-prompts-popup{position:absolute;bottom:calc(100% + 8px);left:0;min-width:280px;max-width:380px;max-height:320px;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:200;flex-direction:column;gap:2px;padding:6px;}
+.saved-prompt-row{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:6px;cursor:pointer;font-size:13px;}
+.saved-prompt-row:hover{background:var(--hover-bg);}
+.saved-prompt-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);}
+.saved-prompt-delete{flex-shrink:0;background:none;border:none;cursor:pointer;color:var(--muted);padding:2px;border-radius:4px;display:flex;align-items:center;justify-content:center;}
+.saved-prompt-delete:hover{color:var(--danger,#f56565);background:rgba(245,101,101,.12);}
+.saved-prompt-add-row{padding:6px 4px 2px;border-top:1px solid var(--border);margin-top:4px;}
+.saved-prompt-save-btn{width:100%;padding:6px 10px;border-radius:6px;background:var(--accent-bg);border:1px solid var(--accent-bg-strong);color:var(--accent-text);font-size:12px;font-weight:600;cursor:pointer;text-align:center;}
+.saved-prompt-save-btn:hover{background:var(--accent-bg-strong);}
+.saved-prompts-empty,.saved-prompts-loading{padding:12px 10px;font-size:12px;color:var(--muted);text-align:center;}
 
 /* ── Code copy button ── */
 .code-copy-btn{background:var(--hover-bg);border:1px solid var(--border2);border-radius:4px;color:var(--muted);font-size:11px;cursor:pointer;padding:2px 6px;transition:all .15s;line-height:1.3;}
