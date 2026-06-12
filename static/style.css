@@ -5575,12 +5575,10 @@ html[lang^="ar"] .layout {
   padding-right:30px;
   font-family:inherit;
 }
-/* Each block child detects its own direction via dir=auto,
-   NOT inheriting from .msg-body. This prevents the post-stream
-   LTR flip: dir=auto on .msg-body is evaluated once at DOM
-   insertion time and never re-evaluated, but by that point the
-   full content may push the first strong character to the wrong
-   side. Per-element dir=auto solves this. */
+/* Each block child has its own dir attribute (rtl or ltr) set by
+   renderMd() based on the first strong character. No unicode-bidi
+   needed — dir attribute changes CSS direction computed property,
+   so text-align:start resolves correctly per element. */
 .chat-content-rtl .msg-body > p,
 .chat-content-rtl .msg-body > li,
 .chat-content-rtl .msg-body > pre,
@@ -5591,7 +5589,6 @@ html[lang^="ar"] .layout {
 .chat-content-rtl .msg-body > h5,
 .chat-content-rtl .msg-body > h6,
 .chat-content-rtl .msg-body > blockquote {
-  unicode-bidi: plaintext;
   text-align: start;
 }
 /* User messages float right, assistant messages float left */
