@@ -6121,6 +6121,8 @@ html[lang^="ar"] .layout {
 }
 /* ── RTL: Tool call group summary margin flip ──────────────────────── */
 .chat-content-rtl .tool-call-group-summary {
+  display: flex;
+  width: fit-content;
   margin-left: 0;
   margin-right: -8px;
 }
@@ -6130,6 +6132,8 @@ html[lang^="ar"] .layout {
   margin-right: var(--msg-rail);
 }
 .chat-content-rtl .tool-worklog-summary {
+  display: flex;
+  width: fit-content;
   margin-left: 0;
   margin-right: -8px;
 }
