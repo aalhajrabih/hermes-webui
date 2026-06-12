@@ -9076,6 +9076,9 @@ function renderMessages(options){
       }
     }
   }
+  // Resolve dir=auto on each msg-body block — detects Arabic vs English
+  // direction from the first strong character in each paragraph/heading.
+  inner.querySelectorAll('.msg-body [dir="auto"]').forEach(_resolveAutoDir);
   // Only force-scroll when not actively streaming — mid-stream re-renders
   // (tool completion, session switch) must not override the user's scroll position.
   // scrollIfPinned() respects _scrollPinned, so it's a no-op if user scrolled up.
