@@ -3899,7 +3899,7 @@ function renderMd(raw){
     return '\x00E'+(_pre_stash.length-1)+'\x00';
   });
   const parts=s.split(/\n{2,}/);
-  s=parts.map(p=>{p=p.trim();if(!p)return '';if(/^<(h[1-6])\b/.test(p))return p.replace(/^<(h[1-6])\b/,'<$1 dir="auto"');if(/^<(ul|ol|table|pre|hr|blockquote)\b/.test(p))return p;if(/^\x00[EQ]/.test(p))return p;return '<p dir="auto">'+p.replace(/\n/g,'<br>')+'</p>';}).join('\n');
+  s=parts.map(p=>{p=p.trim();if(!p)return '';if(/^<(h[1-6]|ul|ol|table|pre|hr|blockquote)|^\x00[EQ]/.test(p))return p;return `<p>${p.replace(/\n/g,'<br>')}</p>`;}).join('\n');
   s=s.replace(/\x00E(\d+)\x00/g,(_,i)=>_pre_stash[+i]);
   // ── Restore MEDIA stash → inline images or download links ─────────────────
   s=s.replace(/\x00D(\d+)\x00/g,(_,i)=>{
@@ -9076,9 +9076,6 @@ function renderMessages(options){
       }
     }
   }
-  // Resolve dir=auto on each msg-body block — detects Arabic vs English
-  // direction from the first strong character in each paragraph/heading.
-  inner.querySelectorAll('.msg-body [dir="auto"]').forEach(_resolveAutoDir);
   // Only force-scroll when not actively streaming — mid-stream re-renders
   // (tool completion, session switch) must not override the user's scroll position.
   // scrollIfPinned() respects _scrollPinned, so it's a no-op if user scrolled up.
@@ -9905,11 +9902,6 @@ async function regenerateResponse(btn) {
 }
 
 function postProcessRenderedMessages(container) {
-  // Resolve dir=auto on each msg-body block — detects Arabic vs English
-  // direction from the first strong character in each paragraph/heading,
-  // rather than inheriting from .msg-body which may have incorrect direction
-  // due to DOM insertion timing.
-  container.querySelectorAll('.msg-body [dir="auto"]').forEach(_resolveAutoDir);
   highlightCode(container);
   addCopyButtons(container);
   loadDiffInline(container);
