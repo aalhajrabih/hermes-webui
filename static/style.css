@@ -5598,11 +5598,12 @@ html[lang^="ar"] .layout {
   text-align:right;
   font-family:inherit;
 }
-.chat-content-rtl .tool-call-group-summary,
-.chat-content-rtl .tool-call-group-summary *{
-  direction:ltr !important;
-  text-align:left !important;
-  unicode-bidi:isolate !important;
+/* Tool summary: no CSS direction — inherits from html dir=rtl.
+   dir=auto on .tool-worklog-label detects Arabic content.
+   flex layout direction is inherited from html dir=rtl,
+   so the chevron appears on the left and dot on the right.
+   text-align is not needed on a flex container. */
+.chat-content-rtl .tool-call-group-summary{
   font-family:inherit;
 }
 /* Agent activity labels: auto-detect direction.
@@ -5734,13 +5735,10 @@ html[lang^="ar"] .layout {
   unicode-bidi:isolate;
 }
 /* Tool-call content: only code/commands/paths stay LTR.
-   Mixed Arabic/English content uses unicode-bidi:plaintext for auto-detection.
+   Mixed Arabic/English content uses dir=auto on the detail containers.
    Body inherits RTL direction from msg-row for Arabic text support. */
-.chat-content-rtl .tool-call-group-body .tool-call-group-summary,
-.chat-content-rtl .tool-call-group-body .tool-call-group-summary *{
-  direction:ltr !important;
-  text-align:left !important;
-  unicode-bidi:isolate !important;
+.chat-content-rtl .tool-call-group-body .tool-call-group-summary{
+  font-family:inherit;
 }
 .chat-content-rtl .tool-call-group-body pre,
 .chat-content-rtl .tool-call-group-body code,
@@ -5932,13 +5930,6 @@ html[lang^="ar"] .layout {
   grid-column: 1; /* rightmost visual column in RTL */
 }
 /* copy stays at grid-column: 2 (middle) */
-.chat-content-rtl .agent-activity-status-label,
-.chat-content-rtl .agent-activity-status-detail,
-.chat-content-rtl .agent-activity-status-time {
-  display: block;
-  unicode-bidi: plaintext;
-  text-align: start;
-}
 .chat-content-rtl .agent-activity-status-icon,
 .chat-content-rtl .agent-activity-status-copy {
   unicode-bidi: plaintext;
