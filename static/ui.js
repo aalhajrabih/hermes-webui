@@ -2740,7 +2740,7 @@ function _activityStatusNode({kind='info',label='',detail='',status='done',ts=nu
   if(id) row.setAttribute('data-activity-event-id',id);
   if(ts) row.setAttribute('data-activity-at',String(ts));
   const iconMap={run:li('play',13),model:li('bot',13),waiting:'<span class="tool-card-running-dot"></span>',thinking:li('lightbulb',13),tool:li('wrench',13),done:li('check',13),warning:li('alert-triangle',13)};
-  row.innerHTML=`<span class="agent-activity-status-icon">${iconMap[kind]||li('clock',13)}</span><span class="agent-activity-status-copy"><span class="agent-activity-status-label">${esc(label)}</span>${detail?`<span class="agent-activity-status-detail">${esc(detail)}</span>`:''}</span><span class="agent-activity-status-time">${esc(_activityClockLabel(ts))}</span>`;
+  row.innerHTML=`<span class="agent-activity-status-icon">${iconMap[kind]||li('clock',13)}</span><span class="agent-activity-status-copy"><span class="agent-activity-status-label" dir="auto">${esc(label)}</span>${detail?`<span class="agent-activity-status-detail" dir="auto">${esc(detail)}</span>`:''}</span><span class="agent-activity-status-time" dir="auto">${esc(_activityClockLabel(ts))}</span>`;
   return row;
 }
 function _appendActivityEvent(group, event){
@@ -6935,7 +6935,7 @@ function ensureActivityGroup(inner, opts){
     if(burstId) group.setAttribute('data-activity-burst-id',burstId);
     if(segmentSeq) group.setAttribute('data-live-segment-seq',segmentSeq);
     group.classList.toggle('open',!collapsed);
-    group.innerHTML=`<button type="button" class="tool-call-group-summary tool-worklog-summary activity-summary" aria-expanded="${collapsed?'false':'true'}" onclick="_toggleActivityGroup(this)"><span class="as-dot"></span><span class="tool-call-group-label tool-worklog-label as-text">Running</span><span class="tool-call-group-duration"></span><span class="tool-call-group-chevron as-caret">${li('chevron-right',12)}</span></button><div class="tool-call-group-body tool-worklog-body activity-body"><div class="worklog"><div class="tool-worklog-list"></div></div></div>`;
+    group.innerHTML=`<button type="button" class="tool-call-group-summary tool-worklog-summary activity-summary" aria-expanded="${collapsed?'false':'true'}" onclick="_toggleActivityGroup(this)"><span class="as-dot"></span><span class="tool-call-group-label tool-worklog-label as-text" dir="auto">Running</span><span class="tool-call-group-duration"></span><span class="tool-call-group-chevron as-caret">${li('chevron-right',12)}</span></button><div class="tool-call-group-body tool-worklog-body activity-body"><div class="worklog"><div class="tool-worklog-list"></div></div></div>`;
     const anchor=opts.anchor||null;
     if(anchor&&anchor.parentElement===inner){
       if(opts.beforeAnchor) inner.insertBefore(group, anchor);
@@ -7229,7 +7229,7 @@ function _compressionCardsHtml(state){
       <div class="tool-card tool-card-compress-command">
         <div class="tool-card-header" onclick="this.closest('.tool-card').classList.toggle('open')">
           <span class="tool-card-icon">${li('settings',13)}</span>
-          <span class="tool-card-name">${esc(t('command_label'))}</span>
+          <span class="tool-card-name" dir="auto">${esc(t('command_label'))}</span>
           <span class="tool-card-preview">${esc(cmdText)}</span>
         </div>
       </div>
@@ -7510,7 +7510,7 @@ function _compressionReferenceCardHtml(text, open=false){
       <div class="tool-card tool-card-compress-reference${open?' open':''}">
         <div class="tool-card-header" onclick="this.closest('.tool-card').classList.toggle('open')">
           <span class="tool-card-icon">${li('star',13)}</span>
-          <span class="tool-card-name">${esc(copy.label)}</span>
+          <span class="tool-card-name" dir="auto">${esc(copy.label)}</span>
           <span class="tool-card-preview">${esc(copy.preview)} · ${esc(preview)}</span>
           <span class="tool-card-toggle">${li('chevron-right',12)}</span>
           <button class="msg-copy-btn msg-action-btn tool-card-copy compression-reference-copy" title="${t('copy')}" onclick="copyMsg(this);event.stopPropagation()">${li('copy',13)}</button>
@@ -7628,7 +7628,7 @@ function _compressionStatusCardHtml({
     <div class="tool-card ${variantClass}${openClass}">
       <div class="tool-card-header" onclick="this.closest('.tool-card').classList.toggle('open')">
         ${statusIcon}
-        <span class="tool-card-name">${esc(statusLabel)}</span>
+        <span class="tool-card-name" dir="auto">${esc(statusLabel)}</span>
         <span class="tool-card-preview">${esc(previewText)}</span>
         ${toggleHtml}
       </div>
@@ -7686,7 +7686,7 @@ function _handoffCardsHtml(state){
       <div class="tool-card tool-card-handoff-summary${isError?' tool-card-compress-error':''} open">
         <div class="tool-card-header" onclick="this.closest('.tool-card').classList.toggle('open')">
           ${icon}
-          <span class="tool-card-name">${esc(label)}</span>
+          <span class="tool-card-name" dir="auto">${esc(label)}</span>
           ${meta?`<span class="tool-card-preview">${esc(meta)}</span>`:''}
           <span class="tool-card-toggle">${li('chevron-right',12)}</span>
         </div>
@@ -9467,7 +9467,7 @@ function buildToolCard(tc){
       <div class="tool-card-header" onclick="this.closest('.tool-card').classList.toggle('open')">
         ${runIndicator}
         <span class="tool-card-icon">${icon}</span>
-        <span class="tool-card-name">${esc(displayName)}</span>
+        <span class="tool-card-name" dir="auto">${esc(displayName)}</span>
         <span class="tool-card-preview">${esc(previewText)}</span>
         ${hasDetail?`<span class="tool-card-toggle">${li('chevron-right',12)}</span>`:''}
       </div>
