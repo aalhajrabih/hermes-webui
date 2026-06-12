@@ -9504,6 +9504,7 @@ function buildToolCard(tc){
   if(_isMemorySave(tc)){row.setAttribute('data-memory-save','1');row.removeAttribute('data-skill-update');}
   else if(_isSkillUpdate(tc)){row.setAttribute('data-skill-update','1');row.removeAttribute('data-memory-save');}
   else {row.removeAttribute('data-memory-save');row.removeAttribute('data-skill-update');}
+  row.querySelectorAll('[dir="auto"]').forEach(_resolveAutoDir);
   return row;
 }
 
