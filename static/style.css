@@ -5922,11 +5922,19 @@ html[lang^="ar"] .layout {
   text-align: left !important;
   unicode-bidi: isolate !important;
 }
-/* Agent activity status: grid container LTR for correct column order.
-   Labels use display:block + plaintext for auto-detection. */
+/* Agent activity status grid: inherit RTL from msg-row.
+   Use grid-column to fix visual column order (icon left, copy middle, time right)
+   despite RTL direction reversing grid columns. */
 .chat-content-rtl .agent-activity-status {
-  direction: ltr;
+  direction: rtl;
 }
+.chat-content-rtl .agent-activity-status-icon {
+  grid-column: 3; /* leftmost visual column in RTL */
+}
+.chat-content-rtl .agent-activity-status-time {
+  grid-column: 1; /* rightmost visual column in RTL */
+}
+/* copy stays at grid-column: 2 (middle) */
 .chat-content-rtl .agent-activity-status-label,
 .chat-content-rtl .agent-activity-status-detail,
 .chat-content-rtl .agent-activity-status-time {
