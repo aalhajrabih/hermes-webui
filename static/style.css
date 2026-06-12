@@ -5575,6 +5575,27 @@ html[lang^="ar"] .layout {
   padding-right:30px;
   font-family:inherit;
 }
+/* unicode-bidi:plaintext on block children ensures direction
+   is detected in real-time from each paragraph's own content,
+   not inherited from the parent dir=auto which is evaluated
+   only once at DOM insertion time. This fixes streaming:
+   during streaming, new text added to <p> re-evaluates
+   direction automatically via CSS, preventing the LTR→RTL
+   flip that happens when dir=auto is evaluated too early
+   on an empty or partially-filled container. */
+.chat-content-rtl .msg-body > p,
+.chat-content-rtl .msg-body > li,
+.chat-content-rtl .msg-body > pre,
+.chat-content-rtl .msg-body > h1,
+.chat-content-rtl .msg-body > h2,
+.chat-content-rtl .msg-body > h3,
+.chat-content-rtl .msg-body > h4,
+.chat-content-rtl .msg-body > h5,
+.chat-content-rtl .msg-body > h6,
+.chat-content-rtl .msg-body > blockquote {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
 /* User messages float right, assistant messages float left */
 .chat-content-rtl .msg-row[data-role="user"] {
   align-self: auto;
