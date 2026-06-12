@@ -5525,7 +5525,8 @@ html[lang^="ar"] .layout {
   margin-left: 0;
   margin-right: 0;
 }
-/* English tool names/status stay LTR even in RTL mode */
+/* English tool names/status stay LTR even in RTL mode.
+   Detail/args/results use plaintext later — removed from this block to avoid conflict. */
 .chat-content-rtl .tool-card-header,
 .chat-content-rtl .tl-head,
 .chat-content-rtl .tool-card-name,
@@ -5533,13 +5534,6 @@ html[lang^="ar"] .layout {
 .chat-content-rtl .tool-card-title,
 .chat-content-rtl .tl-title,
 .chat-content-rtl .tool-card-duration,
-.chat-content-rtl .tool-card-detail,
-.chat-content-rtl .tl-detail,
-.chat-content-rtl .tool-card-args,
-.chat-content-rtl .tool-card-result,
-.chat-content-rtl .tl-detail-inner,
-.chat-content-rtl .tool-arg-key,
-.chat-content-rtl .tool-arg-val,
 .chat-content-rtl .tool-call-group-label,
 .chat-content-rtl .tl-diff {
   direction: ltr;
@@ -5915,11 +5909,16 @@ html[lang^="ar"] .layout {
   text-align: left !important;
   unicode-bidi: isolate !important;
 }
-/* Agent activity status: keep labels LTR, allow body content to auto-detect */
+/* Agent activity status: grid container LTR for correct column order.
+   Only label/detail/time/icon/copy are forced LTR — other content auto-detects. */
+.chat-content-rtl .agent-activity-status {
+  direction: ltr;
+}
 .chat-content-rtl .agent-activity-status-label,
 .chat-content-rtl .agent-activity-status-detail,
 .chat-content-rtl .agent-activity-status-time,
-.chat-content-rtl .agent-activity-status-icon {
+.chat-content-rtl .agent-activity-status-icon,
+.chat-content-rtl .agent-activity-status-copy {
   direction: ltr;
   text-align: left;
   unicode-bidi: isolate;
