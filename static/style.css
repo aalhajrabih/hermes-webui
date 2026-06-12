@@ -5563,8 +5563,9 @@ html[lang^="ar"] .layout {
   text-align: left;
 }
 /* ── Chat messages ───────────────────────────────────────────────────── */
+/* direction inherits from html dir=rtl — do NOT set CSS direction here.
+   CSS direction overrides HTML dir=auto on children, blocking auto-detection. */
 .chat-content-rtl .msg-row{
-  direction:rtl;
   text-align:right;
   unicode-bidi:plaintext;
 }
@@ -5922,12 +5923,8 @@ html[lang^="ar"] .layout {
   text-align: left !important;
   unicode-bidi: isolate !important;
 }
-/* Agent activity status grid: inherit RTL from msg-row.
-   Use grid-column to fix visual column order (icon left, copy middle, time right)
-   despite RTL direction reversing grid columns. */
-.chat-content-rtl .agent-activity-status {
-  direction: rtl;
-}
+/* Agent activity status grid: inherits RTL from html dir=rtl (NO CSS direction).
+   grid-column fixes visual order (icon left, copy middle, time right). */
 .chat-content-rtl .agent-activity-status-icon {
   grid-column: 3; /* leftmost visual column in RTL */
 }
