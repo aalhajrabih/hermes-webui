@@ -7230,7 +7230,7 @@ function _compressionCardsHtml(state){
         <div class="tool-card-header" onclick="this.closest('.tool-card').classList.toggle('open')">
           <span class="tool-card-icon">${li('settings',13)}</span>
           <span class="tool-card-name" dir="auto">${esc(t('command_label'))}</span>
-          <span class="tool-card-preview">${esc(cmdText)}</span>
+          <span class="tool-card-preview" dir="auto">${esc(cmdText)}</span>
         </div>
       </div>
     </div>
@@ -7511,13 +7511,13 @@ function _compressionReferenceCardHtml(text, open=false){
         <div class="tool-card-header" onclick="this.closest('.tool-card').classList.toggle('open')">
           <span class="tool-card-icon">${li('star',13)}</span>
           <span class="tool-card-name" dir="auto">${esc(copy.label)}</span>
-          <span class="tool-card-preview">${esc(copy.preview)} · ${esc(preview)}</span>
+          <span class="tool-card-preview" dir="auto">${esc(copy.preview)} · ${esc(preview)}</span>
           <span class="tool-card-toggle">${li('chevron-right',12)}</span>
           <button class="msg-copy-btn msg-action-btn tool-card-copy compression-reference-copy" title="${t('copy')}" onclick="copyMsg(this);event.stopPropagation()">${li('copy',13)}</button>
         </div>
-        <div class="tool-card-detail">
+        <div class="tool-card-detail" dir="auto">
           <div class="tool-card-result">
-          <pre>${esc(text)}</pre>
+          <pre dir="auto">${esc(text)}</pre>
         </div>
         </div>
       </div>
@@ -7622,14 +7622,14 @@ function _compressionStatusCardHtml({
   const hasBody = !!statusDetail;
   const openClass = open ? ' open' : '';
   const statusIcon = icon;
-  const bodyHtml = hasBody ? `<div class="tool-card-detail"><div class="tool-card-result"><pre>${esc(statusDetail)}</pre></div></div>` : '';
+  const bodyHtml = hasBody ? `<div class="tool-card-detail" dir="auto"><div class="tool-card-result"><pre dir="auto">${esc(statusDetail)}</pre></div></div>` : '';
   const toggleHtml = hasBody ? `<span class="tool-card-toggle">${li('chevron-right',12)}</span>` : '';
   return `
     <div class="tool-card ${variantClass}${openClass}">
       <div class="tool-card-header" onclick="this.closest('.tool-card').classList.toggle('open')">
         ${statusIcon}
         <span class="tool-card-name" dir="auto">${esc(statusLabel)}</span>
-        <span class="tool-card-preview">${esc(previewText)}</span>
+        <span class="tool-card-preview" dir="auto">${esc(previewText)}</span>
         ${toggleHtml}
       </div>
       ${bodyHtml}
@@ -7687,10 +7687,10 @@ function _handoffCardsHtml(state){
         <div class="tool-card-header" onclick="this.closest('.tool-card').classList.toggle('open')">
           ${icon}
           <span class="tool-card-name" dir="auto">${esc(label)}</span>
-          ${meta?`<span class="tool-card-preview">${esc(meta)}</span>`:''}
+          ${meta?`<span class="tool-card-preview" dir="auto">${esc(meta)}</span>`:''}
           <span class="tool-card-toggle">${li('chevron-right',12)}</span>
         </div>
-        <div class="tool-card-detail">
+        <div class="tool-card-detail" dir="auto">
           <div class="tool-card-result handoff-summary-body">${bodyHtml}</div>
         </div>
       </div>
@@ -9468,10 +9468,10 @@ function buildToolCard(tc){
         ${runIndicator}
         <span class="tool-card-icon">${icon}</span>
         <span class="tool-card-name" dir="auto">${esc(displayName)}</span>
-        <span class="tool-card-preview">${esc(previewText)}</span>
+        <span class="tool-card-preview" dir="auto">${esc(previewText)}</span>
         ${hasDetail?`<span class="tool-card-toggle">${li('chevron-right',12)}</span>`:''}
       </div>
-      ${hasDetail?`<div class="tool-card-detail">
+      ${hasDetail?`<div class="tool-card-detail" dir="auto">
         ${tc.args&&Object.keys(tc.args).length?`<div class="tool-card-args">${
           Object.entries(tc.args).map(([k,v])=>`<div><span class="tool-arg-key">${esc(k)}</span> <span class="tool-arg-val">${esc(String(v))}</span></div>`).join('')
         }</div>`:''}
