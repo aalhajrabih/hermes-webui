@@ -2734,6 +2734,19 @@ function _activityClockLabel(ts){
   if(!Number.isFinite(stamp)||stamp<=0)return'';
   try{return new Date(stamp*1000).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});}catch(_){return'';}
 }
+/* Detect Arabic text: checks for Arabic Unicode block characters */
+function _hasArabic(s){
+  for(var i=0;i<s.length;i++){
+    var c=s.charCodeAt(i);
+    if((c>=0x0600&&c<=0x06FF)||(c>=0x0750&&c<=0x077F)||(c>=0x08A0&&c<=0x08FF)||(c>=0xFB50&&c<=0xFDFF)||(c>=0xFE70&&c<=0xFEFF)) return true;
+  }
+  return false;
+}
+function _resolveAutoDir(el){
+  if(!el||!el.textContent) return;
+  el.dir=_hasArabic(el.textContent)?'rtl':'ltr';
+  el.style.direction=el.dir;
+}
 function _activityStatusNode({kind='info',label='',detail='',status='done',ts=null,id=''}){
   const row=document.createElement('div');
   row.className=`agent-activity-status agent-activity-status-${kind} agent-activity-status-${status}`;
@@ -2741,6 +2754,7 @@ function _activityStatusNode({kind='info',label='',detail='',status='done',ts=nu
   if(ts) row.setAttribute('data-activity-at',String(ts));
   const iconMap={run:li('play',13),model:li('bot',13),waiting:'<span class="tool-card-running-dot"></span>',thinking:li('lightbulb',13),tool:li('wrench',13),done:li('check',13),warning:li('alert-triangle',13)};
   row.innerHTML=`<span class="agent-activity-status-icon">${iconMap[kind]||li('clock',13)}</span><span class="agent-activity-status-copy"><span class="agent-activity-status-label" dir="auto">${esc(label)}</span>${detail?`<span class="agent-activity-status-detail" dir="auto">${esc(detail)}</span>`:''}</span><span class="agent-activity-status-time" dir="auto">${esc(_activityClockLabel(ts))}</span>`;
+  row.querySelectorAll('[dir="auto"]').forEach(_resolveAutoDir);
   return row;
 }
 function _appendActivityEvent(group, event){
@@ -9574,6 +9588,7 @@ function _syncToolCallGroupSummary(group){
       }else label.textContent='Activity';
     }
     label.setAttribute('data-sweep-label', label.textContent);
+    _resolveAutoDir(label);
   }
   if(durationEl){
     if(group.getAttribute('data-run-activity-group')==='1'){
