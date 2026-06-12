@@ -6027,20 +6027,20 @@ html[lang^="ar"] .layout {
   direction: ltr !important;
   text-align: left !important;
 }
-/* Tool card expandable detail (args, results) — auto-detect for mixed content */
+/* Tool card expandable detail (args, results) — auto-detect for mixed content.
+   No explicit direction: plaintext computes from content (Arabic→RTL, English→LTR).
+   text-align:start respects computed direction. */
 .chat-content-rtl .tool-card-detail,
 .chat-content-rtl .tl-detail {
   margin-left: 0 !important;
   margin-right: 0 !important;
-  direction: ltr !important;
-  text-align: left !important;
   unicode-bidi: plaintext !important;
+  text-align: start !important;
 }
 .chat-content-rtl .tool-card-detail *,
 .chat-content-rtl .tl-detail * {
-  direction: ltr !important;
-  text-align: left !important;
   unicode-bidi: plaintext !important;
+  text-align: start !important;
 }
 /* Flip tool card left border accent to right side in RTL */
 .chat-content-rtl .tool-card:not(.tool-card-subagent):not(.tl) {
