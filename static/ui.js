@@ -3899,7 +3899,7 @@ function renderMd(raw){
     return '\x00E'+(_pre_stash.length-1)+'\x00';
   });
   const parts=s.split(/\n{2,}/);
-  s=parts.map(p=>{p=p.trim();if(!p)return '';if(/^<(h[1-6]|ul|ol|table|pre|hr|blockquote)|^\x00[EQ]/.test(p))return p;return `<p>${p.replace(/\n/g,'<br>')}</p>`;}).join('\n');
+  s=parts.map(p=>{p=p.trim();if(!p)return '';if(/^<(h[1-6])\b/.test(p))return p.replace(/^<(h[1-6])\b/,'<$1 dir="auto"');if(/^<(ul|ol|table|pre|hr|blockquote)\b/.test(p))return p;if(/^\x00[EQ]/.test(p))return p;return '<p dir="auto">'+p.replace(/\n/g,'<br>')+'</p>';}).join('\n');
   s=s.replace(/\x00E(\d+)\x00/g,(_,i)=>_pre_stash[+i]);
   // ── Restore MEDIA stash → inline images or download links ─────────────────
   s=s.replace(/\x00D(\d+)\x00/g,(_,i)=>{
@@ -9063,15 +9063,20 @@ function renderMessages(options){
           // (No dataset.sessionId stamp here: only the segment enters the DOM;
           // the rebuilt turn was already stamped at build time, see above.)
           _rebuiltSeg.replaceWith(_preservedSeg);
+          // After swap, re-resolve dir=auto because _preservedSeg may be from
+          // an older renderMd() that didn't have dir=auto on <p> elements.
+          _preservedSeg.querySelectorAll('[dir="auto"]').forEach(_resolveAutoDir);
         }else if(_rebuilt){
           // Rebuilt turn lacks structure the live turn already has (live-only
           // tool card not yet persisted), or has no live segment to target —
           // restore the whole preserved turn so nothing the user saw vanishes.
           if(S.session) _preservedLiveTurn.dataset.sessionId=S.session.session_id;
           _rebuilt.replaceWith(_preservedLiveTurn);
+          _preservedLiveTurn.querySelectorAll('[dir="auto"]').forEach(_resolveAutoDir);
         }else{
           if(S.session) _preservedLiveTurn.dataset.sessionId=S.session.session_id;
           inner.appendChild(_preservedLiveTurn);
+          _preservedLiveTurn.querySelectorAll('[dir="auto"]').forEach(_resolveAutoDir);
         }
       }
     }
@@ -9902,6 +9907,9 @@ async function regenerateResponse(btn) {
 }
 
 function postProcessRenderedMessages(container) {
+  // Resolve dir=auto on each msg-body block — detects Arabic vs English
+  // direction from the first strong character in each paragraph/heading.
+  container.querySelectorAll('.msg-body [dir="auto"]').forEach(_resolveAutoDir);
   highlightCode(container);
   addCopyButtons(container);
   loadDiffInline(container);
