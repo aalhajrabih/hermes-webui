@@ -5544,11 +5544,12 @@ html[lang^="ar"] .layout {
   unicode-bidi: plaintext;
   text-align: start;
 }
-/* Keep code blocks left-aligned */
+/* Terminal/code output blocks: auto-detect direction.
+   English code → LTR; Arabic output → RTL. plaintext detects from first char. */
 .chat-content-rtl .tool-card-result pre,
 .chat-content-rtl .tl-detail-inner pre {
-  direction: ltr;
-  text-align: left;
+  unicode-bidi: plaintext;
+  text-align: start;
 }
 /* Live run status / footer stays LTR */
 .chat-content-rtl .live-run-status {
