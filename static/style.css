@@ -5575,14 +5575,12 @@ html[lang^="ar"] .layout {
   padding-right:30px;
   font-family:inherit;
 }
-/* unicode-bidi:plaintext on block children ensures direction
-   is detected in real-time from each paragraph's own content,
-   not inherited from the parent dir=auto which is evaluated
-   only once at DOM insertion time. This fixes streaming:
-   during streaming, new text added to <p> re-evaluates
-   direction automatically via CSS, preventing the LTR→RTL
-   flip that happens when dir=auto is evaluated too early
-   on an empty or partially-filled container. */
+/* Each block child detects its own direction via dir=auto,
+   NOT inheriting from .msg-body. This prevents the post-stream
+   LTR flip: dir=auto on .msg-body is evaluated once at DOM
+   insertion time and never re-evaluated, but by that point the
+   full content may push the first strong character to the wrong
+   side. Per-element dir=auto solves this. */
 .chat-content-rtl .msg-body > p,
 .chat-content-rtl .msg-body > li,
 .chat-content-rtl .msg-body > pre,
@@ -5632,12 +5630,10 @@ html[lang^="ar"] .layout {
    (inline elements cannot change their block-level text alignment).
    Arabic labels → display:block + plaintext → RTL + right-aligned.
    English labels → display:block + plaintext → LTR + left-aligned. */
-.chat-content-rtl .agent-activity-status-label,
-.chat-content-rtl .agent-activity-status-detail,
-.chat-content-rtl .agent-activity-status-time {
-  display: block;
-  unicode-bidi: plaintext !important;
-  text-align: start !important;
+.chat-content-rtl .agent-activity-status-icon,
+.chat-content-rtl .agent-activity-status-copy {
+  unicode-bidi: plaintext;
+  text-align: start;
 }
 /* Tool call summary label/duration — always English, keep LTR. */
 .chat-content-rtl .tool-call-group-label,

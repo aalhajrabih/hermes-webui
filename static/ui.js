@@ -3899,7 +3899,7 @@ function renderMd(raw){
     return '\x00E'+(_pre_stash.length-1)+'\x00';
   });
   const parts=s.split(/\n{2,}/);
-  s=parts.map(p=>{p=p.trim();if(!p)return '';if(/^<(h[1-6]|ul|ol|table|pre|hr|blockquote)|^\x00[EQ]/.test(p))return p;return `<p>${p.replace(/\n/g,'<br>')}</p>`;}).join('\n');
+  s=parts.map(p=>{p=p.trim();if(!p)return '';if(/^<(h[1-6])\b/.test(p))return p.replace(/^<(h[1-6])\b/,'<$1 dir="auto"');if(/^<(ul|ol|table|pre|hr|blockquote)\b/.test(p))return p;if(/^\x00[EQ]/.test(p))return p;return '<p dir="auto">'+p.replace(/\n/g,'<br>')+'</p>';}).join('\n');
   s=s.replace(/\x00E(\d+)\x00/g,(_,i)=>_pre_stash[+i]);
   // ── Restore MEDIA stash → inline images or download links ─────────────────
   s=s.replace(/\x00D(\d+)\x00/g,(_,i)=>{
@@ -8385,7 +8385,7 @@ function renderMessages(options){
       row.dataset.msgIdx=rawIdx;
       row.dataset.role='user';
       row.dataset.rawText=String(displayContent).trim();
-      row.innerHTML=`${filesHtml}<div class="msg-body" dir="auto">${bodyHtml}</div>${footHtml}`;
+      row.innerHTML=`${filesHtml}<div class="msg-body">${bodyHtml}</div>${footHtml}`;
       inner.appendChild(row);
       userRows.set(rawIdx, row);
       continue;
@@ -8447,7 +8447,7 @@ function renderMessages(options){
     if(statusHtml){
       seg.insertAdjacentHTML('beforeend', statusHtml);
     }else if(hasVisibleBody){
-      seg.insertAdjacentHTML('beforeend', `${filesHtml}<div class="msg-body" dir="auto">${bodyHtml}</div>${footHtml}`);
+      seg.insertAdjacentHTML('beforeend', `${filesHtml}<div class="msg-body">${bodyHtml}</div>${footHtml}`);
     }else if(!(thinkingText&&window._showThinking!==false&&!isSimplifiedToolCalling())){
       seg.classList.add('assistant-segment-anchor');
     }
@@ -9902,6 +9902,11 @@ async function regenerateResponse(btn) {
 }
 
 function postProcessRenderedMessages(container) {
+  // Resolve dir=auto on each msg-body block — detects Arabic vs English
+  // direction from the first strong character in each paragraph/heading,
+  // rather than inheriting from .msg-body which may have incorrect direction
+  // due to DOM insertion timing.
+  container.querySelectorAll('.msg-body [dir="auto"]').forEach(_resolveAutoDir);
   highlightCode(container);
   addCopyButtons(container);
   loadDiffInline(container);
