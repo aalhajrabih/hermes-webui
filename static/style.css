@@ -5526,19 +5526,23 @@ html[lang^="ar"] .layout {
   margin-right: 0;
 }
 /* English tool names/status stay LTR even in RTL mode.
-   Detail/args/results use plaintext later — removed from this block to avoid conflict. */
+   Detail/args/results use plaintext later — removed from this block to avoid conflict.
+   Names/titles use plaintext for Arabic auto-detection. */
 .chat-content-rtl .tool-card-header,
 .chat-content-rtl .tl-head,
-.chat-content-rtl .tool-card-name,
-.chat-content-rtl .tl-verb,
-.chat-content-rtl .tool-card-title,
-.chat-content-rtl .tl-title,
 .chat-content-rtl .tool-card-duration,
 .chat-content-rtl .tool-call-group-label,
 .chat-content-rtl .tl-diff {
   direction: ltr;
   text-align: left;
   unicode-bidi: isolate;
+}
+.chat-content-rtl .tool-card-name,
+.chat-content-rtl .tl-verb,
+.chat-content-rtl .tool-card-title,
+.chat-content-rtl .tl-title {
+  unicode-bidi: plaintext;
+  text-align: start;
 }
 /* Keep code blocks left-aligned */
 .chat-content-rtl .tool-card-result pre,
@@ -5903,7 +5907,6 @@ html[lang^="ar"] .layout {
 .chat-content-rtl .thinking-card *,
 .chat-content-rtl .agent-activity-thinking,
 .chat-content-rtl .agent-activity-group,
-.chat-content-rtl .agent-activity-group *,
 .chat-content-rtl .composer-status {
   direction: ltr !important;
   text-align: left !important;
@@ -5919,9 +5922,8 @@ html[lang^="ar"] .layout {
 .chat-content-rtl .agent-activity-status-time,
 .chat-content-rtl .agent-activity-status-icon,
 .chat-content-rtl .agent-activity-status-copy {
-  direction: ltr;
-  text-align: left;
-  unicode-bidi: isolate;
+  unicode-bidi: plaintext;
+  text-align: start;
 }
 /* ── Suggestion cards ────────────────────────────────────────────────── */
 .chat-content-rtl .suggestion {
@@ -5996,14 +5998,14 @@ html[lang^="ar"] .layout {
 .chat-content-rtl .tl-head {
   margin-left: 0;
   margin-right: -8px;
-  direction: ltr !important;  /* English tool names flow left-to-right */
+  /* No direction:ltr — let the flex container inherit RTL from msg-row.
+     English tool names are isolated by unicode-bidi on .tool-card-name. */
 }
 /* Tool names and previews — auto-detect direction (English→left, Arabic→right) */
 .chat-content-rtl .tool-card-name,
 .chat-content-rtl .tool-card-preview {
-  direction: ltr !important;
-  text-align: left !important;
   unicode-bidi: plaintext !important;
+  text-align: start !important;
 }
 /* Toggle chevron and duration push to the right (LTR context now) */
 .chat-content-rtl .tool-card-toggle,
