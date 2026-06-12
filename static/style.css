@@ -5605,10 +5605,14 @@ html[lang^="ar"] .layout {
   font-family:inherit;
 }
 /* Agent activity labels: auto-detect direction.
-   English tool names → LTR; Arabic labels → RTL. */
+   display:block is required for plaintext to compute block-direction
+   (inline elements cannot change their block-level text alignment).
+   Arabic labels → display:block + plaintext → RTL + right-aligned.
+   English labels → display:block + plaintext → LTR + left-aligned. */
 .chat-content-rtl .agent-activity-status-label,
 .chat-content-rtl .agent-activity-status-detail,
 .chat-content-rtl .agent-activity-status-time {
+  display: block;
   unicode-bidi: plaintext !important;
   text-align: start !important;
 }
@@ -5919,17 +5923,20 @@ html[lang^="ar"] .layout {
   unicode-bidi: isolate !important;
 }
 /* Agent activity status: grid container LTR for correct column order.
-   Only label/detail/time/icon/copy are forced LTR — other content auto-detects. */
+   Labels use display:block + plaintext for auto-detection. */
 .chat-content-rtl .agent-activity-status {
   direction: ltr;
 }
 .chat-content-rtl .agent-activity-status-label,
 .chat-content-rtl .agent-activity-status-detail,
-.chat-content-rtl .agent-activity-status-time,
+.chat-content-rtl .agent-activity-status-time {
+  display: block;
+  unicode-bidi: plaintext;
+  text-align: start;
+}
 .chat-content-rtl .agent-activity-status-icon,
 .chat-content-rtl .agent-activity-status-copy {
   unicode-bidi: plaintext;
-  text-align: start;
 }
 /* ── Suggestion cards ────────────────────────────────────────────────── */
 .chat-content-rtl .suggestion {
