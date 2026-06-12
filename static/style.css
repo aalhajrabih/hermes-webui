@@ -5724,14 +5724,33 @@ html[lang^="ar"] .layout {
   text-align:left;
   unicode-bidi:isolate;
 }
-/* Tool-call content (commands, paths, JSON) stays LTR. */
-.chat-content-rtl .tool-call-group-body,
-.chat-content-rtl .tool-call-group-body *,
-.chat-content-rtl .tool-result,
-.chat-content-rtl .tool-result *{
+/* Tool-call content: only code/commands/paths stay LTR.
+   Mixed Arabic/English content uses unicode-bidi:plaintext for auto-detection.
+   Body inherits RTL direction from msg-row for Arabic text support. */
+.chat-content-rtl .tool-call-group-body .tool-call-group-summary,
+.chat-content-rtl .tool-call-group-body .tool-call-group-summary *{
   direction:ltr !important;
   text-align:left !important;
   unicode-bidi:isolate !important;
+}
+.chat-content-rtl .tool-call-group-body pre,
+.chat-content-rtl .tool-call-group-body code,
+.chat-content-rtl .tool-call-group-body .diff-block,
+.chat-content-rtl .tool-call-group-body .csv-table,
+.chat-content-rtl .tool-call-group-body .code-block{
+  direction:ltr !important;
+  text-align:left !important;
+  unicode-bidi:isolate !important;
+}
+/* Tool results: code/pre blocks stay LTR. Other content auto-detects. */
+.chat-content-rtl .tool-result pre,
+.chat-content-rtl .tool-result code{
+  direction:ltr !important;
+  text-align:left !important;
+  unicode-bidi:isolate !important;
+}
+.chat-content-rtl .tool-result {
+  unicode-bidi: plaintext;
 }
 /* ── RTL enhancements for mixed Arabic/English text ─────────────────────── */
 /* Lists: bullets/numbers on the right side */
@@ -5891,12 +5910,19 @@ html[lang^="ar"] .layout {
 .chat-content-rtl .agent-activity-thinking,
 .chat-content-rtl .agent-activity-group,
 .chat-content-rtl .agent-activity-group *,
-.chat-content-rtl .agent-activity-status,
-.chat-content-rtl .agent-activity-status *,
 .chat-content-rtl .composer-status {
   direction: ltr !important;
   text-align: left !important;
   unicode-bidi: isolate !important;
+}
+/* Agent activity status: keep labels LTR, allow body content to auto-detect */
+.chat-content-rtl .agent-activity-status-label,
+.chat-content-rtl .agent-activity-status-detail,
+.chat-content-rtl .agent-activity-status-time,
+.chat-content-rtl .agent-activity-status-icon {
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: isolate;
 }
 /* ── Suggestion cards ────────────────────────────────────────────────── */
 .chat-content-rtl .suggestion {
