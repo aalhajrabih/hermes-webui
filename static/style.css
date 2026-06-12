@@ -5604,10 +5604,15 @@ html[lang^="ar"] .layout {
   unicode-bidi:isolate !important;
   font-family:inherit;
 }
-/* Force LTR on agent-activity labels (tool names, status text) */
+/* Agent activity labels: auto-detect direction.
+   English tool names → LTR; Arabic labels → RTL. */
 .chat-content-rtl .agent-activity-status-label,
 .chat-content-rtl .agent-activity-status-detail,
-.chat-content-rtl .agent-activity-status-time,
+.chat-content-rtl .agent-activity-status-time {
+  unicode-bidi: plaintext !important;
+  text-align: start !important;
+}
+/* Tool call summary label/duration — always English, keep LTR. */
 .chat-content-rtl .tool-call-group-label,
 .chat-content-rtl .tool-call-group-duration {
   direction: ltr !important;
