@@ -5575,10 +5575,8 @@ html[lang^="ar"] .layout {
   padding-right:30px;
   font-family:inherit;
 }
-/* Each block child has its own dir attribute (rtl or ltr) set by
-   renderMd() based on the first strong character. No unicode-bidi
-   needed — dir attribute changes CSS direction computed property,
-   so text-align:start resolves correctly per element. */
+/* Each block child has inline style with explicit text-align
+   (right for Arabic, left for English) set by renderMd(). */
 .chat-content-rtl .msg-body > p,
 .chat-content-rtl .msg-body > li,
 .chat-content-rtl .msg-body > pre,
@@ -5589,7 +5587,7 @@ html[lang^="ar"] .layout {
 .chat-content-rtl .msg-body > h5,
 .chat-content-rtl .msg-body > h6,
 .chat-content-rtl .msg-body > blockquote {
-  text-align: start;
+  unicode-bidi: plaintext;
 }
 /* User messages float right, assistant messages float left */
 .chat-content-rtl .msg-row[data-role="user"] {
