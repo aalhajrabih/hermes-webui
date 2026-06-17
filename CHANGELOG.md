@@ -3,6 +3,12 @@
 
 ## [Unreleased]
 
+## [v0.51.474] — 2026-06-17 — Release QI (reconcile WebUI session source flags)
+
+### Fixed
+
+- **A WebUI-native session is no longer force-reloaded as if it were an imported CLI transcript (#4348).** When a WebUI-origin session carried a stale sidecar that still said `raw_source=cli` / `is_cli_session=true` (while state.db correctly recorded it as WebUI-origin), `/api/session` returned the stale flags and the browser opened it as an external session — entering the periodic external-refresh reload path that could rebuild the transcript while you were reading it. The detail endpoint now reconciles its source flags against the state.db row (the source of truth) before redaction, and the frontend `_isExternalSession()` refuses to classify an explicit WebUI-source session as external. Keeps the list and detail endpoints on one source-classification contract; imported CLI/messaging sessions are unaffected. Thanks @dso2ng.
+
 ## [v0.51.473] — 2026-06-17 — Release QH (clean cancelled user context chains)
 
 ### Fixed
