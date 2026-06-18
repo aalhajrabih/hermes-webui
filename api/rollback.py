@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import shutil
+import stat
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -94,6 +95,76 @@ def _resolve_workspace(workspace: str) -> str:
 def _find_git() -> str:
     """Return the path to the git binary."""
     return shutil.which("git") or "git"
+
+
+def _checkpoint_entry_modes(git: str, ckpt_dir: Path) -> dict[str, int]:
+    """Return git index modes for tracked checkpoint paths in one pass."""
+    result = subprocess.run(
+        [git, "-C", str(ckpt_dir), "ls-files", "-s"],
+        capture_output=True, text=True, timeout=10,
+    )
+    if result.returncode != 0:
+        raise ValueError("Failed to list checkpoint files")
+
+    modes: dict[str, int] = {}
+    for line in result.stdout.splitlines():
+        parts = line.split(maxsplit=3)
+        if len(parts) != 4:
+            continue
+        try:
+            modes[parts[3]] = int(parts[0], 8)
+        except ValueError:
+            continue
+    return modes
+
+
+def _checkpoint_entry_is_regular(modes: dict[str, int], rel_path: str) -> bool:
+    """Return True only for regular tracked checkpoint files.
+
+    Checkpoint worktrees can contain tracked symlinks. Pathname reads such as
+    Path.is_file()/read_text() follow those symlinks and can disclose host files
+    outside the checkpoint/workspace root in rollback diffs. Use the git index
+    mode as the source of truth and refuse symlink/special entries before any
+    filesystem open.
+    """
+    mode = modes.get(rel_path)
+    return mode is not None and stat.S_ISREG(mode)
+
+
+def _read_checkpoint_blob(git: str, ckpt_dir: Path, rel_path: str) -> bytes | None:
+    """Read a regular tracked checkpoint blob without opening the worktree path."""
+    result = subprocess.run(
+        [git, "-C", str(ckpt_dir), "show", f"HEAD:{rel_path}"],
+        capture_output=True, timeout=10,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
+def _read_checkpoint_text(git: str, ckpt_dir: Path, modes: dict[str, int], rel_path: str) -> str | None:
+    """Read a regular tracked checkpoint file without following worktree links."""
+    if not _checkpoint_entry_is_regular(modes, rel_path):
+        return None
+    blob = _read_checkpoint_blob(git, ckpt_dir, rel_path)
+    if blob is None:
+        return None
+    return blob.decode(errors="replace")
+
+
+def _read_workspace_text(workspace_root: Path, rel_path: str) -> str | None:
+    """Read workspace text through the anchored workspace file API.
+
+    The normal workspace helpers reject traversal and symlink escapes. Treat
+    invalid or unreadable files as absent so the diff does not imply that the
+    workspace contains an empty file.
+    """
+    from api.workspace import read_file_content
+
+    try:
+        return read_file_content(workspace_root, rel_path)["content"]
+    except (FileNotFoundError, OSError, ValueError):
+        return None
 
 
 # ── Public API functions (called from routes.py) ────────────────────────────
@@ -198,39 +269,25 @@ def get_checkpoint_diff(workspace: str, checkpoint: str) -> dict[str, Any]:
 
     git = _find_git()
 
-    # Get list of files in the checkpoint
-    ls_result = subprocess.run(
-        [git, "-C", str(ckpt_dir), "ls-files"],
-        capture_output=True, text=True, timeout=10,
-    )
-    if ls_result.returncode != 0:
-        raise ValueError("Failed to list checkpoint files")
+    try:
+        entry_modes = _checkpoint_entry_modes(git, ckpt_dir)
+    except ValueError as e:
+        raise ValueError("Failed to list checkpoint files") from e
 
-    ckpt_files = [f for f in ls_result.stdout.strip().split("\n") if f]
+    ckpt_files = list(entry_modes)
     files_changed = []
     diff_lines = []
 
     for rel_path in ckpt_files:
-        ckpt_file = ckpt_dir / rel_path
-        ws_file = Path(resolved) / rel_path
-
-        if not ckpt_file.is_file():
-            continue
-
-        # Read checkpoint version
-        try:
-            ckpt_content = ckpt_file.read_text(errors="replace")
-        except OSError:
+        # Read checkpoint version from the git object database, not via the
+        # checkout path. This prevents tracked symlinks in the checkpoint from
+        # redirecting diff reads to arbitrary host files.
+        ckpt_content = _read_checkpoint_text(git, ckpt_dir, entry_modes, rel_path)
+        if ckpt_content is None:
             continue
 
         # Read workspace version (if exists)
-        if ws_file.is_file():
-            try:
-                ws_content = ws_file.read_text(errors="replace")
-            except OSError:
-                ws_content = ""
-        else:
-            ws_content = None  # File was deleted in workspace
+        ws_content = _read_workspace_text(Path(resolved), rel_path)
 
         if ws_content is None:
             # File exists in checkpoint but not in workspace (deleted)
@@ -262,8 +319,8 @@ def get_checkpoint_diff(workspace: str, checkpoint: str) -> dict[str, Any]:
     }
 
 
-def _restore_checkpoint_file(workspace_root: Path, ckpt_file: Path, rel_path: str) -> None:
-    """Restore one checkpoint file without following workspace symlinks outward."""
+def _restore_checkpoint_file(workspace_root: Path, rel_path: str, content: bytes, mode: int) -> None:
+    """Restore one checkpoint blob without following checkpoint or workspace symlinks."""
     from api.workspace import open_anchored_create_fd, open_anchored_write_fd, safe_resolve_ws
 
     target = safe_resolve_ws(workspace_root, rel_path)
@@ -272,19 +329,13 @@ def _restore_checkpoint_file(workspace_root: Path, ckpt_file: Path, rel_path: st
     else:
         fd = open_anchored_create_fd(workspace_root, target)
 
-    src_stat = ckpt_file.stat()
     with os.fdopen(fd, "wb") as out:
-        with ckpt_file.open("rb") as src:
-            shutil.copyfileobj(src, out)
+        out.write(content)
         out.flush()
         try:
-            os.fchmod(out.fileno(), src_stat.st_mode & 0o777)
+            os.fchmod(out.fileno(), mode & 0o777)
         except (AttributeError, OSError):
             logger.debug("Failed to apply restored mode to %s", target, exc_info=True)
-        try:
-            os.utime(out.fileno(), ns=(src_stat.st_atime_ns, src_stat.st_mtime_ns))
-        except OSError:
-            logger.debug("Failed to apply restored timestamp to %s", target, exc_info=True)
 
 
 def restore_checkpoint(workspace: str, checkpoint: str) -> dict[str, Any]:
@@ -308,26 +359,26 @@ def restore_checkpoint(workspace: str, checkpoint: str) -> dict[str, Any]:
 
     git = _find_git()
 
-    # Get list of files in the checkpoint
-    ls_result = subprocess.run(
-        [git, "-C", str(ckpt_dir), "ls-files"],
-        capture_output=True, text=True, timeout=10,
-    )
-    if ls_result.returncode != 0:
-        raise ValueError("Failed to list checkpoint files")
+    try:
+        entry_modes = _checkpoint_entry_modes(git, ckpt_dir)
+    except ValueError as e:
+        raise ValueError("Failed to list checkpoint files") from e
 
-    ckpt_files = [f for f in ls_result.stdout.strip().split("\n") if f]
+    ckpt_files = list(entry_modes)
     restored = []
     errors = []
 
     for rel_path in ckpt_files:
-        ckpt_file = ckpt_dir / rel_path
+        mode = entry_modes.get(rel_path)
+        if mode is None or not stat.S_ISREG(mode):
+            continue
 
-        if not ckpt_file.is_file():
+        content = _read_checkpoint_blob(git, ckpt_dir, rel_path)
+        if content is None:
             continue
 
         try:
-            _restore_checkpoint_file(workspace_root, ckpt_file, rel_path)
+            _restore_checkpoint_file(workspace_root, rel_path, content, mode)
             restored.append(rel_path)
         except (OSError, ValueError) as e:
             errors.append({"file": rel_path, "error": str(e)})

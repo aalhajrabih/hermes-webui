@@ -3,6 +3,12 @@
 
 ## [Unreleased]
 
+## [v0.51.497] — 2026-06-18 — Release RG (rollback checkpoint diffs no longer follow symlinks)
+
+### Security
+
+- **Rollback checkpoint diffs no longer follow checkpoint or workspace symlinks when rendering file contents (#4410).** The diff path previously read tracked checkpoint files and workspace files through pathname APIs, so a symlink entry could redirect the rendered diff to a readable file outside the checkpoint/workspace boundary. Diff reads now reject non-regular checkpoint entries (using the git index mode as source of truth) and read content from the git object database rather than the worktree path; workspace-side content goes through the workspace's anchored file reader, and restore also skips symlink checkpoint sources. Companion to the v0.51.491 restore-write containment (#4405). Thanks @Hinotoi-agent.
+
 ## [v0.51.496] — 2026-06-18 — Release RF (compact provider quota chip on narrow composer)
 
 ### Fixed
