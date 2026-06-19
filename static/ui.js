@@ -2301,6 +2301,13 @@ function renderModelDropdown(){
     }
     return _groupMeta.get(groupKey);
   };
+  const _vendorPrefix=(rawId)=>{
+    const stripped=String(rawId||'').replace(/^@([^:]+:)+/,'');
+    const slash=stripped.indexOf('/');
+    return slash>0?stripped.slice(0,slash):'';
+  };
+  const SUB_GROUP_PROVIDERS=new Set(['openrouter','nous']);
+  const SUB_GROUP_MIN_MODELS=8;
   for(const child of Array.from(sel.children)){
     if(child.tagName==='OPTGROUP'){
       const providerId=child.dataset&&child.dataset.provider?child.dataset.provider:'';
@@ -2520,6 +2527,17 @@ function renderModelDropdown(){
     const _hit=_modelData.find(m=>m&&!m.endpointErrorOnly&&String(m.value||'')===_selVal);
     return _hit?_hit.groupKey:null;
   })();
+  const _makeModelRow=(m,sel,shouldRenderHeading)=>{
+    const row=document.createElement('div');
+    row.className='model-opt'+(m.value===sel.value?' active':'');
+    const badgeHtml=m.badge?`<span class="model-opt-badge model-opt-badge--${esc(m.badge.role||'configured')}">${esc(m.badge.label||'Configured')}</span>`:'';
+    const _plainGroup=m.group?String(m.group).replace(/\s*\(\d+\s+of\s+\d+\)\s*$/,''):'';
+    const _underOwnHeading=shouldRenderHeading&&!!(m.groupKey&&_groupWrappers[m.groupKey]);
+    const providerChip=(_plainGroup&&!_underOwnHeading)?`<span class="model-opt-provider">${esc(_plainGroup)}</span>`:'';
+    row.innerHTML=`<div class="model-opt-top"><span class="model-opt-name">${esc(m.name)}</span>${badgeHtml}${providerChip}</div><span class="model-opt-id">${esc(m.id)}</span>`;
+    row.onclick=()=>selectModelFromDropdown(m.value,m.providerId||(m.badge&&m.badge.provider)||null);
+    return row;
+  };
   const _filterModels=(term)=>{
     term=term.trim().toLowerCase();
     const hasSearch=!!term;
@@ -2673,30 +2691,55 @@ function renderModelDropdown(){
           if(closed) _forceOpenGroups.add(groupKey); else _forceOpenGroups.delete(groupKey);
           heading.classList.toggle('open',closed);
         });
-      }
-      for(const m of groupRows){
-        const row=document.createElement('div');
-        row.className='model-opt'+(m.value===sel.value?' active':'');
-        const badgeHtml=m.badge?`<span class="model-opt-badge model-opt-badge--${esc(m.badge.role||'configured')}">${esc(m.badge.label||'Configured')}</span>`:'';
-        // The group heading carries the overflow count ("Provider (15 of 30)"); the
-        // per-row provider chip must show the PLAIN provider label only — otherwise
-        // the count is stamped redundantly on every row and reads as nonsense after
-        // "Show all" expands the group (e.g. row 30 still showing "(15 of 30)"). (#3691)
-        const _plainGroup=m.group?String(m.group).replace(/\s*\(\d+\s+of\s+\d+\)\s*$/,''):'';
-        // Only show the per-row provider chip when the row is NOT already under its
-        // own provider heading — i.e. it's a flat/hoisted row appended straight to
-        // the dropdown (no group wrapper). Repeating the provider name on every row
-        // beneath its own "PROVIDER" heading is pure visual noise. The chip still
-        // orients hoisted/configured rows and search results that render flat.
-        const _underOwnHeading=shouldRenderHeading&&!!(m.groupKey&&_groupWrappers[m.groupKey]);
-        const providerChip=(_plainGroup&&!_underOwnHeading)?`<span class="model-opt-provider">${esc(_plainGroup)}</span>`:'';
-        row.innerHTML=`<div class="model-opt-top"><span class="model-opt-name">${esc(m.name)}</span>${badgeHtml}${providerChip}</div><span class="model-opt-id">${esc(m.id)}</span>`;
-        row.onclick=()=>selectModelFromDropdown(m.value,m.providerId||(m.badge&&m.badge.provider)||null);
-        if(m.groupKey&&_groupWrappers[m.groupKey]){
-          _groupWrappers[m.groupKey].appendChild(row);
-        }else{
-          dd.appendChild(row);
+        const useSubGroups=(
+          SUB_GROUP_PROVIDERS.has(meta.providerId) &&
+          groupRows.length>=SUB_GROUP_MIN_MODELS
+        );
+        if(useSubGroups){
+          const byPrefix=new Map();
+          for(const m of groupRows){
+            const pfx=_vendorPrefix(m.value)||'other';
+            if(!byPrefix.has(pfx)) byPrefix.set(pfx,[]);
+            byPrefix.get(pfx).push(m);
+          }
+          const sorted=[...byPrefix.entries()].sort((a,b)=>{
+            if(a[0]==='other') return 1;
+            if(b[0]==='other') return -1;
+            return b[1].length-a[1].length;
+          });
+          for(const [pfx,pfxRows] of sorted){
+            if(pfxRows.length>=2){
+              const subKey=`${groupKey}::${pfx}`;
+              if(!(subKey in _groupOpenState)) _groupOpenState[subKey]=true;
+              if(hasSearch) _groupOpenState[subKey]=true;
+              const subHeading=document.createElement('div');
+              subHeading.className='model-group sub collapsible';
+              subHeading.dataset.group=subKey;
+              if(_groupOpenState[subKey]) subHeading.classList.add('open');
+              subHeading.textContent=pfx;
+              const subWrapper=document.createElement('div');
+              subWrapper.className='model-group-body sub';
+              subWrapper.dataset.group=subKey;
+              if(!_groupOpenState[subKey]) subWrapper.style.display='none';
+              subHeading.addEventListener('click',(e)=>{
+                e.stopPropagation();
+                const closed=subWrapper.style.display==='none';
+                subWrapper.style.display=closed?'':'none';
+                _groupOpenState[subKey]=closed;
+                subHeading.classList.toggle('open',closed);
+              });
+              wrapper.appendChild(subHeading);
+              wrapper.appendChild(subWrapper);
+              for(const m of pfxRows) subWrapper.appendChild(_makeModelRow(m,sel,shouldRenderHeading));
+            } else {
+              for(const m of pfxRows) wrapper.appendChild(_makeModelRow(m,sel,shouldRenderHeading));
+            }
+          }
+        } else {
+          for(const m of groupRows) wrapper.appendChild(_makeModelRow(m,sel,shouldRenderHeading));
         }
+      } else {
+        for(const m of groupRows) dd.appendChild(_makeModelRow(m,sel,shouldRenderHeading));
       }
       if(!term&&hiddenCount){
         const showAll=document.createElement('div');
@@ -2738,7 +2781,14 @@ function renderModelDropdown(){
   };
   _si.addEventListener('input',()=>_filterModels(_si.value));
   // Keyboard navigation through filtered model rows (#2791).
-  const _visibleModelRows=()=>Array.from(dd.querySelectorAll('.model-opt,.model-opt-more')).filter(el=>!el.closest('.model-group-body')||el.closest('.model-group-body').style.display!=='none');
+  const _visibleModelRows=()=>Array.from(dd.querySelectorAll('.model-opt,.model-opt-more')).filter(el=>{
+    let node=el.parentElement;
+    while(node&&node!==dd){
+      if(node.classList.contains('model-group-body')&&node.style.display==='none') return false;
+      node=node.parentElement;
+    }
+    return true;
+  });
   const _activeRowIndex=(rows)=>rows.findIndex(r=>r.classList.contains('is-highlighted'));
   const _highlightRow=(rows,idx)=>{
     for(const r of rows) r.classList.remove('is-highlighted');
