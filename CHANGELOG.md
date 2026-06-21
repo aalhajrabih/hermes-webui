@@ -3,6 +3,12 @@
 
 ## [Unreleased]
 
+## [v0.51.545] — 2026-06-20 — Release TD (extension manifest asset bundles)
+
+### Added
+
+- **Bundle extension assets with a manifest instead of long comma-separated URL lists (#4505).** A new `HERMES_WEBUI_EXTENSION_MANIFEST` env points to a small JSON manifest (capped at 64 KB) that lists an extension's `scripts`/`stylesheets`, so self-hosters running multiple local extensions no longer have to maintain unwieldy `HERMES_WEBUI_EXTENSION_SCRIPT_URLS` strings. Per-extension `enabled: false` skips a bundle. The manifest path is traversal-guarded (must resolve inside the extension dir; absolute/`~` paths rejected), and every asset URL still goes through the exact same same-origin allowlist validator as before (`/extensions/` or `/static/` only — never third-party fetch), capped at 32 entries and deduped. Fully opt-in and default-off; with no manifest env set, behavior is unchanged. Thanks @santastabber.
+
 ## [v0.51.544] — 2026-06-20 — Release TC (opt-in: render markdown in your own messages)
 
 ### Added
