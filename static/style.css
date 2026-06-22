@@ -2575,8 +2575,8 @@
       right:auto;
       left:10px;
     }
-    .chat-content-rtl .app-titlebar-new-chat{
-      margin-left: 44px;
+    .chat-content-rtl .panel-head{
+      padding-left: 48px;
     }
     .sidebar .panel-head{padding-right:52px;}
     .mobile-sidebar-close{display:inline-flex!important;position:absolute;right:10px;top:calc(8px + var(--app-titlebar-safe-top));width:32px;height:32px;z-index:4;background:var(--surface);border:1px solid var(--border);}
