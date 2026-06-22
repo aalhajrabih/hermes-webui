@@ -33,14 +33,16 @@ _PROFILE_DIRS = [
 ]
 _CLONE_CONFIG_FILES = ['config.yaml', '.env', 'SOUL.md']
 
-# ── Snapshot initial HERMES_HOME before init_profile_state() mutates it ──────
-# _is_isolated_profile_mode() needs to detect whether HERMES_HOME *at startup*
-# points to a profile subdirectory (e.g., ~/.hermes/profiles/user1), not the
-# base home (~/.hermes). But init_profile_state() overwrites HERMES_HOME to the
-# base home, which would disable isolation detection. Snapshot it here at import
-# time (before init_profile_state runs) and use the snapshot in the detector.
+# ── Snapshot startup env before profile init / dotenv reload mutates it ───────
+# _is_isolated_profile_mode() needs startup HERMES_HOME, not the value after
+# init_profile_state() rewrites it. The opt-in flag is also an operator-level
+# startup control: a pinned profile's .env may be loaded into live os.environ
+# later, but must not be able to change whether the process is isolated.
 _INITIAL_HERMES_HOME = os.getenv('HERMES_HOME', '').strip()
+_INITIAL_ISOLATED_PROFILE_OPT_IN = os.getenv('HERMES_WEBUI_ISOLATED_PROFILE', '').strip().lower()
 _ISOLATED_SYMLINK_WARNING_EMITTED = False
+_ISOLATED_PROFILE_SHAPE_WITHOUT_OPT_IN_WARNING_EMITTED = False
+_ISOLATED_PROFILE_TRUTHY_VALUES = frozenset({'1', 'true', 'yes', 'on'})
 
 # ── Module state ────────────────────────────────────────────────────────────
 _active_profile = 'default'
@@ -125,41 +127,104 @@ def _unwrap_profile_home_to_base(home: Path) -> Path:
     return home
 
 
-def _is_isolated_profile_mode() -> bool:
-    """Detect isolated single-profile mode from HERMES_HOME env var.
+# Env keys a pinned profile's .env may NOT override via _reload_dotenv() — these
+# are operator/deployment-level postures, not per-profile toggles. Letting a
+# profile .env set HERMES_WEBUI_ISOLATED_PROFILE=0 would let a contained user
+# escape isolation (#4589).
+_PROTECTED_ENV_KEYS = frozenset({'HERMES_WEBUI_ISOLATED_PROFILE'})
 
-    Returns True when HERMES_HOME points at a concrete profile subdirectory
-    (e.g., ~/.hermes/profiles/user1) rather than the base home (~/.hermes).
-    This indicates a single-profile deployment where the WebUI should pin to
-    that profile and reject cross-profile operations.
 
-    Isolation is derived only from the literal ``*/profiles/<name>`` shape of
-    HERMES_HOME at startup. A normal multi-profile deployment points
-    HERMES_HOME at the base home (``~/.hermes``), which does not match the
-    shape, so isolation stays off. We deliberately do not key this off
-    HERMES_BASE_HOME: that variable normally points at the base home already,
-    so using it as an opt-out silently disables legitimate isolated-profile
-    deployments.
+def _isolated_profile_opt_in() -> bool:
+    """Return True only when isolated single-profile mode is EXPLICITLY enabled.
+    Isolated mode is an intentional multi-user deployment posture (each user is
+    pinned to one profile and cross-profile operations are rejected). It must be
+    opted into with ``HERMES_WEBUI_ISOLATED_PROFILE`` — it is NEVER inferred from
+    the ``HERMES_HOME`` shape alone, because a normal single-user who runs under a
+    named profile produces the byte-identical ``*/profiles/<name>`` shape (the
+    Hermes Agent launcher exports ``HERMES_HOME=~/.hermes/profiles/<name>`` for any
+    active named profile). Keying isolation off the shape alone therefore breaks
+    profile switching for ordinary single-user deployments (#4586).
 
-    Uses _INITIAL_HERMES_HOME (snapshotted at import time) to detect isolation,
-    not the current os.environ value. init_profile_state() overwrites HERMES_HOME
-    at startup, which would disable isolation detection if we read it here.
+    Accepts the usual truthy values; default (unset/empty/falsey) is OFF.
+
+    Security: this reads the startup snapshot, not live ``os.environ``. A pinned
+    profile's ``.env`` is loaded after import, so live env can be profile-owned;
+    the opt-in must remain the operator/launcher posture captured at process
+    start (#4590). ``_reload_dotenv()`` and the runtime env paths still filter the
+    key as defense-in-depth, but detection does not depend on that filtering.
     """
+    return _INITIAL_ISOLATED_PROFILE_OPT_IN in _ISOLATED_PROFILE_TRUTHY_VALUES
+
+
+def _warn_if_profile_shape_without_isolated_opt_in() -> None:
+    """Log once when HERMES_HOME looks pinned but startup opt-in is absent."""
+    global _ISOLATED_PROFILE_SHAPE_WITHOUT_OPT_IN_WARNING_EMITTED
+    if _ISOLATED_PROFILE_SHAPE_WITHOUT_OPT_IN_WARNING_EMITTED:
+        return
+    hermes_home = _INITIAL_HERMES_HOME
+    if not hermes_home:
+        return
+    p = Path(hermes_home).expanduser()
+    if p.parent.name != 'profiles' or not p.name:
+        return
+    logger.warning(
+        "HERMES_HOME points at a profile directory (%s), but "
+        "HERMES_WEBUI_ISOLATED_PROFILE was not enabled at startup; isolated "
+        "profile mode stays off and normal multi-profile switching remains enabled.",
+        p,
+    )
+    _ISOLATED_PROFILE_SHAPE_WITHOUT_OPT_IN_WARNING_EMITTED = True
+
+
+def _is_isolated_profile_mode() -> bool:
+    """Detect isolated single-profile mode.
+
+    Returns True only when BOTH conditions hold:
+      1. ``HERMES_WEBUI_ISOLATED_PROFILE`` is explicitly enabled (the PRIMARY
+         gate — see _isolated_profile_opt_in), AND
+      2. HERMES_HOME at startup points at a concrete profile subdirectory
+         (e.g., ~/.hermes/profiles/user1) rather than the base home.
+
+    Why the explicit flag is required (#4586 regression fix): the
+    ``*/profiles/<name>`` shape alone CANNOT distinguish an intentional
+    multi-user isolation deployment from an ordinary single-user running under a
+    named profile — the Hermes Agent launcher sets
+    ``HERMES_HOME=~/.hermes/profiles/<name>`` for any active named profile, so the
+    two cases are byte-identical at the env-var level. Inferring isolation from
+    the shape alone (the v0.51.528 behaviour from #2698) wrongly pinned ordinary
+    single-user deployments to one profile and disabled profile switching. The
+    multi-user wrapper that genuinely wants isolation now sets the explicit flag;
+    everyone else is never caught. The shape stays as a secondary requirement so
+    a stray flag without a profile-shaped HERMES_HOME does not engage isolation.
+
+    Uses _INITIAL_HERMES_HOME (snapshotted at import time) to detect the shape,
+    not the current os.environ value. init_profile_state() overwrites HERMES_HOME
+    at startup, which would disable detection if we read it here.
+    """
+    # PRIMARY gate: explicit startup opt-in. Default OFF → a normal named-profile
+    # launch is never treated as isolated, so profile switching keeps working
+    # (#4586). Read the snapshot, not live os.environ, so profile .env reloads
+    # cannot silently flip the deployment posture (#4590).
+    if not _isolated_profile_opt_in():
+        _warn_if_profile_shape_without_isolated_opt_in()
+        return False
+
     hermes_home = _INITIAL_HERMES_HOME
     if not hermes_home:
         return False
 
     p = Path(hermes_home).expanduser()
-    # Check if this path looks like ~/.hermes/profiles/<name>
-    # i.e., parent dir is named 'profiles' and grandparent exists
+    # SECONDARY requirement: HERMES_HOME must look like ~/.hermes/profiles/<name>
+    # i.e., parent dir is named 'profiles' and grandparent exists.
     if p.parent.name == 'profiles' and p.parent.parent.exists():
         return True
     if p.is_symlink():
         global _ISOLATED_SYMLINK_WARNING_EMITTED
         if not _ISOLATED_SYMLINK_WARNING_EMITTED:
             logger.warning(
-                "HERMES_HOME symlink %s does not literally match */profiles/<name>; "
-                "isolated profile mode is disabled unless the literal profile path is used.",
+                "HERMES_WEBUI_ISOLATED_PROFILE is set but HERMES_HOME %s does not "
+                "literally match */profiles/<name>; isolated profile mode stays off "
+                "unless the literal profile path is used.",
                 p,
             )
             _ISOLATED_SYMLINK_WARNING_EMITTED = True
@@ -770,6 +835,12 @@ def get_profile_runtime_env(home: Path) -> dict[str, str]:
                     k = k.strip()
                     v = v.strip().strip('"').strip("'")
                     if k and v:
+                        # #4589: never let a profile's own .env override an
+                        # operator/deployment posture (e.g. disable isolation via
+                        # HERMES_WEBUI_ISOLATED_PROFILE=0) on the runtime-env path
+                        # the same way _reload_dotenv() protects the live env.
+                        if k in _PROTECTED_ENV_KEYS:
+                            continue
                         env[k] = v
         except Exception:
             logger.debug("Failed to read runtime env from %s", env_path)
@@ -793,6 +864,9 @@ _BLOCKED_RUNTIME_ENV_KEYS = {
     'PYTHONPATH',
     'VIRTUAL_ENV',
     'LD_LIBRARY_PATH',
+    # #4589: operator/deployment isolation posture — never overridable by a
+    # profile's own env on any runtime/gateway-parity path.
+    'HERMES_WEBUI_ISOLATED_PROFILE',
 }
 
 
@@ -1031,6 +1105,16 @@ def _reload_dotenv(home: Path):
                 k = k.strip()
                 v = v.strip().strip('"').strip("'")
                 if k and v:
+                    # Operator/deployment-level keys are never overridable by a
+                    # profile's own .env (#4589 — prevents a contained user from
+                    # disabling their isolation via HERMES_WEBUI_ISOLATED_PROFILE=0).
+                    if k in _PROTECTED_ENV_KEYS:
+                        logger.warning(
+                            "Ignoring protected key %s in profile .env %s; "
+                            "operator/deployment env takes precedence",
+                            k, env_path,
+                        )
+                        continue
                     os.environ[k] = v
                     loaded_keys.add(k)
         _loaded_profile_env_keys = loaded_keys
