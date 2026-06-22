@@ -5043,7 +5043,7 @@ main.main > #mainPlugin{display:none;}
 
 /* ── Unified indent rail — every child of a turn lines up on --msg-rail ── */
 .msg-row { padding: 12px 0; }
-.msg-body { padding-left: var(--msg-rail); padding-top: 8px; max-width: var(--msg-max); }
+.msg-body { padding-left: var(--msg-rail); padding-top: 8px; max-width: var(--msg-max); unicode-bidi: plaintext; }
 .msg-body code,
 .msg-body pre,
 .msg-body table { font-family: 'SF Mono', ui-monospace, monospace; }
