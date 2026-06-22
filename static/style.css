@@ -2571,6 +2571,10 @@
       margin-left:0;
       margin-right:52px;
     }
+    .chat-content-rtl .mobile-sidebar-close{
+      right:auto;
+      left:10px;
+    }
     .sidebar .panel-head{padding-right:52px;}
     .mobile-sidebar-close{display:inline-flex!important;position:absolute;right:10px;top:calc(8px + var(--app-titlebar-safe-top));width:32px;height:32px;z-index:4;background:var(--surface);border:1px solid var(--border);}
     .sidebar .panel-icon-btn{min-width:44px;min-height:44px;width:auto;height:auto;}
