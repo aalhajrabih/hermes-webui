@@ -3,9 +3,11 @@
 
 ## [Unreleased]
 
+## [v0.51.599] — 2026-06-23 — Release VF (dedupe live progress reasoning echoes)
+
 ### Fixed
 
-- **Compact Worklog no longer shows the same live progress sentence as both Process and Thinking.** Some reasoning-heavy runtimes emit a user-facing progress update first through the reasoning callback and then through `interim_assistant`; the Anchor-backed live Worklog now treats that as one visible progress row, strips the duplicated reasoning tail from live/durable state, and keeps journal replay from rebuilding the duplicate Thinking row.
+- **Compact Worklog no longer shows the same live progress sentence as both Process and Thinking.** Some reasoning-heavy runtimes emit a user-facing progress update first through the reasoning callback and then through `interim_assistant`; the Anchor-backed live Worklog now treats that as one visible progress row, strips the duplicated reasoning tail from live/durable state, and keeps journal replay from rebuilding the duplicate Thinking row. Thanks @franksong2702. (#4758)
 
 ## [v0.51.598] — 2026-06-23 — Release VE (preserve scroll across live worklog rebuilds)
 
