@@ -338,12 +338,78 @@ def test_scene_renderer_coalesces_row_updates_and_renders_in_scene_order():
     render = _function_body(UI_JS, "_renderAnchorSceneRowsIntoWorklog")
     live = _function_body(UI_JS, "renderLiveAnchorActivityScene")
 
+    assert "const live=!settled" in rows
+    assert "const liveProseTextKeys=new Map()" in rows
+    assert "if(textKey&&liveProseTextKeys.has(textKey)) continue;" in rows
     assert "byKey.set(key,out.length)" in rows
     assert "out[index]=row.role==='tool'?_anchorSceneMergeToolRows(out[index],row):row" in rows
     assert "for(const row of rows)" in render
     assert "_anchorSceneNodeForRow(row,opts)" in render
     assert "blocks.querySelectorAll('[data-live-assistant=\"1\"]')" in live
     assert "assistant-segment-worklog-source" in live
+    assert "el.hidden=true" in live
+
+
+@pytest.mark.skipif(NODE is None, reason="node is required for anchor row normalization tests")
+def test_live_anchor_scene_dedupes_exact_duplicate_process_prose_only_live():
+    script = f"""
+const fs = require('fs');
+const src = fs.readFileSync({json.dumps(str(ROOT / "static" / "ui.js"))}, 'utf8');
+function extractFunc(name){{
+  const start = src.indexOf('function ' + name);
+  if(start === -1) throw new Error(name + ' not found');
+  const params = src.indexOf('(', start);
+  let depth = 0, close = -1;
+  for(let i=params; i<src.length; i++){{
+    if(src[i] === '(') depth++;
+    else if(src[i] === ')'){{
+      depth--;
+      if(depth === 0){{ close = i; break; }}
+    }}
+  }}
+  const brace = src.indexOf('{{', close);
+  depth = 0;
+  for(let i=brace; i<src.length; i++){{
+    if(src[i] === '{{') depth++;
+    else if(src[i] === '}}'){{
+      depth--;
+      if(depth === 0) return src.slice(start, i + 1);
+    }}
+  }}
+  throw new Error(name + ' body did not close');
+}}
+function _anchorSceneToolRowLogicalKey(){{ return ''; }}
+function _anchorSceneMergeToolRows(a,b){{ return b; }}
+function _anchorSceneIsSettledSuccessfulCompression(){{ return false; }}
+eval(extractFunc('_anchorSceneRowsForRendering'));
+const scene = {{
+  activity_rows: [
+    {{role:'prose', local_id:'reasoning:291', text:'same process prose'}},
+    {{role:'prose', local_id:'interim:293', text:' same\\nprocess prose '}},
+    {{role:'thinking', local_id:'thinking:1', text:'same process prose'}},
+    {{role:'prose', local_id:'process:294', text:'new process prose'}}
+  ]
+}};
+const liveRows = _anchorSceneRowsForRendering(scene, {{settled:false}});
+const settledRows = _anchorSceneRowsForRendering(scene, {{settled:true}});
+console.log(JSON.stringify({{
+  live: liveRows.map(row => row.role + ':' + row.text.replace(/\\s+/g, ' ').trim()),
+  settled: settledRows.map(row => row.role + ':' + row.text.replace(/\\s+/g, ' ').trim())
+}}));
+"""
+    result = _run_node_script(script)
+
+    assert result["live"] == [
+        "prose:same process prose",
+        "thinking:same process prose",
+        "prose:new process prose",
+    ]
+    assert result["settled"] == [
+        "prose:same process prose",
+        "prose:same process prose",
+        "thinking:same process prose",
+        "prose:new process prose",
+    ]
 
 
 def test_live_anchor_scene_removes_legacy_interim_collapse_toggle():
@@ -752,6 +818,7 @@ def test_settled_anchor_scene_final_answer_does_not_fold_into_worklog_source():
         "if(m._activityBurstId!==undefined||m._liveSegmentSeq!==undefined) return true;"
     )
     assert "seg.classList.add('assistant-segment-worklog-source')" in render
+    assert "seg.hidden=true" in render
     assert "_renderSettledAnchorSceneForMessage(msg, seg, rawIdx)" in render
 
 
@@ -763,6 +830,7 @@ def test_settled_anchor_scene_hides_prior_process_segments_not_final_answer():
     assert "idx<rawIdx" in settled
     assert "node.classList.add('assistant-segment-worklog-source')" in settled
     assert "node.setAttribute('aria-hidden','true')" in settled
+    assert "node.hidden=true" in settled
     assert "turnDuration:message._turnDuration!==undefined&&message._turnDuration!==null?message._turnDuration:scene.turn_duration" in settled
     assert "turnDuration:opts&&opts.turnDuration" in group
     assert "data-turn-duration" in group

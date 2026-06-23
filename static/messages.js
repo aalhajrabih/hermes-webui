@@ -2831,6 +2831,34 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
     }
     return false;
   }
+  function _removeLiveReasoningEchoRows(visible){
+    const turn=$('liveAssistantTurn');
+    const blocks=turn&&typeof _assistantTurnBlocks==='function'?_assistantTurnBlocks(turn):null;
+    if(!blocks||!visible) return false;
+    let removed=false;
+    const selector=[
+      '.agent-activity-thinking[data-anchor-scene-row="1"]',
+      '.agent-activity-thinking[data-live-thinking="1"]',
+      '.wl-reason[data-worklog-anchor-reason="1"]',
+      '.wl-reason[data-worklog-reason-source="reasoning"]'
+    ].join(',');
+    blocks.querySelectorAll(selector).forEach(row=>{
+      const textNode=row.querySelector&&(
+        row.querySelector('.thinking-card-body pre') ||
+        row.querySelector('.thinking-card-body')
+      );
+      const text=String((textNode&&textNode.textContent)||row.textContent||'');
+      if(!_stripCompactEchoSuffix(text, visible).removed) return;
+      row.remove();
+      removed=true;
+    });
+    if(removed&&typeof _syncToolCallGroupSummary==='function'){
+      blocks.querySelectorAll('.tool-worklog-group,.tool-call-group').forEach(group=>{
+        _syncToolCallGroupSummary(group);
+      });
+    }
+    return removed;
+  }
   function _stripLiveReasoningEcho(visible){
     let removed=false;
     const durable=_stripCompactEchoSuffix(reasoningText, visible);
@@ -2844,11 +2872,12 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
       removed=true;
     }
     const anchorRemoved=_stripAnchorReasoningEcho(visible);
+    const domRemoved=_removeLiveReasoningEchoRows(visible);
     if(removed) syncInflightAssistantMessage();
-    if((removed||anchorRemoved)&&!String(liveReasoningText||'').trim()&&typeof removeThinking==='function'){
+    if((removed||anchorRemoved||domRemoved)&&!String(liveReasoningText||'').trim()&&typeof removeThinking==='function'){
       removeThinking();
     }
-    return removed||anchorRemoved;
+    return removed||anchorRemoved||domRemoved;
   }
   function _flushReasoningToAnchor(){
     if(_anchorReasoningFlushed||!reasoningText) return;
@@ -3404,6 +3433,7 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
   }
   function _flushPendingSegmentRender(options={}){
     const force=!!(options&&options.force);
+    const skipAnchorProcessProse=!!(options&&options.skipAnchorProcessProse);
     if(!assistantBody||(!force&&!_renderPending)) return;
     if(_renderPending) _cancelAnimationFramePendingStreamRender();
     const displayText=segmentStart===0
@@ -3428,7 +3458,7 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
     } else {
       assistantBody.innerHTML=esc(displayText);
     }
-    _upsertAnchorProcessProse(displayText,{sealed:force});
+    if(!skipAnchorProcessProse) _upsertAnchorProcessProse(displayText,{sealed:force});
     if(typeof _syncLiveWorklogReasonsForAnchor==='function') _syncLiveWorklogReasonsForAnchor(assistantRow, displayText);
   }
   function _resetAssistantSegment(){
@@ -3871,7 +3901,7 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
       _completeAutomaticCompressionOnLiveProgress(activeSid);
       ensureAssistantRow(true);
       if(assistantRow) assistantRow.setAttribute('data-interim','1');
-      _flushPendingSegmentRender({force:true});
+      _flushPendingSegmentRender({force:true,skipAnchorProcessProse:true});
       if(typeof finalizeThinkingCard==='function') finalizeThinkingCard();
       if(typeof closeCurrentLiveActivityGroup==='function') closeCurrentLiveActivityGroup();
       _applyToAnchor('interim_assistant',d,e);

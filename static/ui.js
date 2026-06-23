@@ -871,7 +871,8 @@ function _compensateScrollForMeasurementDelta(renderFn){
   if(!container) return renderFn();
   const anchorBefore=_captureMessageViewportAnchor();
   const scrollTopBefore=container.scrollTop;
-  renderFn();
+  container.classList.add('vscroll-measuring');
+  try{ renderFn(); }finally{ container.classList.remove('vscroll-measuring'); }
   if(!anchorBefore) return;
   if(scrollTopBefore<1){
     const spacer=container.querySelector('[data-virtual-spacer="before"]');
@@ -9078,6 +9079,7 @@ function _syncWorklogReasonFromAnchor(group, anchor, displayTextOverride){
   if(anchor){
     anchor.classList.add('assistant-segment-worklog-source');
     anchor.setAttribute('aria-hidden','true');
+    anchor.hidden=true;
   }
 }
 function ensureLiveWorklogContainer(blocks, opts){
@@ -9141,6 +9143,7 @@ function _appendWorklogReason(list, anchor){
   if(anchor){
     anchor.classList.add('assistant-segment-worklog-source');
     anchor.setAttribute('aria-hidden','true');
+    anchor.hidden=true;
   }
   return reason;
 }
@@ -9262,8 +9265,11 @@ function _appendWorklogStep(group, anchor, cards, thinkingText, opts){
 function _anchorSceneRowsForRendering(scene, opts){
   const rows=Array.isArray(scene&&scene.activity_rows)?scene.activity_rows:[];
   const settled=!!(opts&&opts.settled);
+  const live=!settled;
   const out=[];
   const byKey=new Map();
+  const liveProseTextKeys=new Map();
+  const proseTextKey=(value)=>String(value||'').replace(/\s+/g,' ').trim();
   const keyFor=(row)=>{
     if(!row) return '';
     if(row.role==='tool') return `tool:${_anchorSceneToolRowLogicalKey(row)||row.row_id||row.event_id||row.local_id||out.length}`;
@@ -9285,8 +9291,23 @@ function _anchorSceneRowsForRendering(scene, opts){
     const key=keyFor(row);
     if(byKey.has(key)){
       const index=byKey.get(key);
+      if(live&&row.role==='prose'){
+        const textKey=proseTextKey(text);
+        const duplicateIndex=textKey?liveProseTextKeys.get(textKey):undefined;
+        if(duplicateIndex!==undefined&&duplicateIndex!==index) continue;
+        const previousTextKey=proseTextKey(out[index]&&out[index].text);
+        if(previousTextKey&&previousTextKey!==textKey&&liveProseTextKeys.get(previousTextKey)===index){
+          liveProseTextKeys.delete(previousTextKey);
+        }
+        if(textKey) liveProseTextKeys.set(textKey,index);
+      }
       out[index]=row.role==='tool'?_anchorSceneMergeToolRows(out[index],row):row;
     }else{
+      if(live&&row.role==='prose'){
+        const textKey=proseTextKey(text);
+        if(textKey&&liveProseTextKeys.has(textKey)) continue;
+        if(textKey) liveProseTextKeys.set(textKey,out.length);
+      }
       byKey.set(key,out.length);
       out.push(row);
     }
@@ -9570,6 +9591,44 @@ function _projectLiveAnchorActivitySceneForStream(streamId, mode){
     return null;
   }
 }
+function _prepareLiveAnchorScrollRebuildGuard(scrollSnapshot){
+  const messagesEl=$('messages');
+  if(!messagesEl||!scrollSnapshot) return {readerAwayFromBottom:false,release:null};
+  const beforeBottomDistance=Math.max(0,messagesEl.scrollHeight-messagesEl.scrollTop-messagesEl.clientHeight);
+  // Only treat the reader as away if they were ALREADY in a non-follow state.
+  // A pinned follower can transiently have bottomDistance>250 mid-render (the
+  // assistant body grows before the anchor scene re-renders), so keying on a
+  // raw scrollTop>0 here would mis-classify a pinned reader as unpinned and kill
+  // auto-follow. Require an explicit unpin/non-pinned signal instead.
+  const readerAwayFromBottom=beforeBottomDistance>250&&(_messageUserUnpinned||_scrollPinned===false);
+  if(!readerAwayFromBottom) return {readerAwayFromBottom:false,release:null};
+  scrollSnapshot.pinned=false;
+  scrollSnapshot.userUnpinned=true;
+  scrollSnapshot.bottom=beforeBottomDistance;
+  _messageUserUnpinned=true;
+  _scrollPinned=false;
+  _nearBottomCount=0;
+  const msgInner=$('msgInner');
+  if(!msgInner||!msgInner.style) return {readerAwayFromBottom:true,release:null};
+  const guardPreviousKey='liveAnchorScrollGuardPreviousMinHeight';
+  let previousMinHeight=msgInner.style.minHeight||'';
+  if(msgInner.dataset&&Object.prototype.hasOwnProperty.call(msgInner.dataset,guardPreviousKey)){
+    previousMinHeight=msgInner.dataset[guardPreviousKey]||'';
+  }else if(msgInner.dataset){
+    msgInner.dataset[guardPreviousKey]=previousMinHeight;
+  }
+  const guardHeight=Math.max(messagesEl.scrollHeight,Number(scrollSnapshot.scrollHeight)||0);
+  if(guardHeight>0) msgInner.style.minHeight=`${guardHeight}px`;
+  return {
+    readerAwayFromBottom:true,
+    release:()=>{
+      msgInner.style.minHeight=previousMinHeight;
+      if(msgInner.dataset&&msgInner.dataset[guardPreviousKey]===previousMinHeight){
+        delete msgInner.dataset[guardPreviousKey];
+      }
+    },
+  };
+}
 function renderLiveAnchorActivityScene(streamId, scene, opts){
   opts=opts||{};
   if(typeof isCompactWorklogMode==='function'&&!isCompactWorklogMode()) return false;
@@ -9594,11 +9653,13 @@ function renderLiveAnchorActivityScene(streamId, scene, opts){
     ? _captureWorklogDetailDisclosureState(blocks)
     : null;
   const scrollSnapshot=_captureMessageScrollSnapshot();
+  const scrollRebuildGuard=_prepareLiveAnchorScrollRebuildGuard(scrollSnapshot);
   blocks.querySelectorAll('[data-anchor-scene-owner="1"],[data-anchor-scene-row="1"]').forEach(el=>el.remove());
   blocks.querySelectorAll('.live-worklog[data-live-worklog-shell="1"],.tool-worklog-group[data-live-tool-call-group="1"],.tool-call-group[data-live-tool-call-group="1"],.tool-card-row[data-live-tid]:not(.transparent-event-row),.agent-activity-thinking[data-live-thinking="1"],.interim-collapse-toggle').forEach(el=>el.remove());
   blocks.querySelectorAll('[data-live-assistant="1"]').forEach(el=>{
     el.classList.add('assistant-segment-worklog-source');
     el.setAttribute('aria-hidden','true');
+    el.hidden=true;
   });
   const group=_anchorSceneWorklogGroup(blocks,{
     live:true,
@@ -9618,7 +9679,16 @@ function renderLiveAnchorActivityScene(streamId, scene, opts){
   _dedupeLiveProcessedWorklogAnchors(turn);
   if(typeof _moveLiveRunStatusToTurnEnd==='function') _moveLiveRunStatusToTurnEnd();
   _restoreMessageScrollSnapshotSameFrame(scrollSnapshot);
-  if(typeof scrollIfPinned==='function') scrollIfPinned();
+  if(scrollRebuildGuard&&scrollRebuildGuard.release){
+    requestAnimationFrame(()=>{
+      scrollRebuildGuard.release();
+      // Only re-restore the unpinned snapshot if the reader is STILL unpinned at
+      // rAF time. If they re-pinned between guard-engage and this frame, the
+      // stale re-restore would yank them back off the bottom (Opus gate finding).
+      if(_messageUserUnpinned) _restoreMessageScrollSnapshotSameFrame(scrollSnapshot);
+    });
+  }
+  if(!scrollRebuildGuard.readerAwayFromBottom&&typeof scrollIfPinned==='function') scrollIfPinned();
   return true;
 }
 function _renderLiveAnchorActivitySceneForStream(streamId, sessionId, opts){
@@ -9663,6 +9733,7 @@ function _renderSettledAnchorSceneTransparentForMessage(message, segment, rawIdx
     if(Number.isFinite(idx)&&idx<rawIdx){
       node.classList.add('assistant-segment-worklog-source');
       node.setAttribute('aria-hidden','true');
+      node.hidden=true;
     }
   });
   let wrote=false;
@@ -9695,6 +9766,7 @@ function _renderSettledAnchorSceneForMessage(message, segment, rawIdx){
     if(Number.isFinite(idx)&&idx<rawIdx){
       node.classList.add('assistant-segment-worklog-source');
       node.setAttribute('aria-hidden','true');
+      node.hidden=true;
     }
   });
   blocks.querySelectorAll('.tool-worklog-group:not([data-anchor-scene-owner="1"]),.tool-call-group:not([data-anchor-scene-owner="1"]),.agent-activity-thinking:not([data-anchor-scene-row="1"]),.wl-reason').forEach(el=>el.remove());
@@ -11410,6 +11482,7 @@ function renderMessages(options){
     if(messageBelongsInWorklog){
       seg.classList.add('assistant-segment-worklog-source');
       seg.setAttribute('aria-hidden','true');
+      seg.hidden=true;
     }
     if(m._live){
       currentAssistantTurn.id='liveAssistantTurn';
@@ -12147,6 +12220,7 @@ function renderMessages(options){
           if(!(seg.textContent||'').trim()) continue;
           seg.classList.remove('assistant-segment-worklog-source');
           seg.removeAttribute('aria-hidden');
+          seg.hidden=false;
         }
       }
     }

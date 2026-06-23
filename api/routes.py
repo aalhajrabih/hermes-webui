@@ -1597,7 +1597,10 @@ def _session_list_cache_key(
     show_previous_messaging_sessions: bool,
     show_cron_sessions: bool,
     include_archived: bool = False,
+    exclude_hidden: bool = False,
+    visible_only: bool = False,
     source_filter: str | None = None,
+    sidebar_source: str | None = None,
 ) -> tuple:
     return (
         _session_list_cache_profile_scope(active_profile),
@@ -1606,7 +1609,10 @@ def _session_list_cache_key(
         bool(show_previous_messaging_sessions),
         bool(show_cron_sessions),
         bool(include_archived),
+        bool(exclude_hidden),
+        bool(visible_only),
         source_filter,
+        sidebar_source,
     )
 
 
@@ -1924,10 +1930,38 @@ def _build_session_list_cache_payload(
     show_previous_messaging_sessions: bool,
     show_cron_sessions: bool,
     include_archived: bool = False,
+    exclude_hidden: bool = False,
+    visible_only: bool = False,
     source_filter: str | None = None,
+    sidebar_source: str | None = None,
     diag=None,
 ) -> dict:
     diag_stage = diag.stage if diag is not None else lambda *_a, **_k: None
+
+    def _session_has_server_visible_messages(session: dict) -> bool:
+        """Return True when a non-active sidebar row has a visibility signal.
+
+        Keep this mirror of the non-active server filter narrow and local to
+        route behavior so model-layer behavior remains unchanged.
+        """
+        if not isinstance(session, dict):
+            return False
+        if _numeric_count(session.get("message_count")) > 0:
+            return True
+
+        attention = session.get("attention")
+        if not (isinstance(attention, dict) and attention.get("kind")):
+            attention = _session_attention_summary(str(session.get("session_id") or ""))
+        if isinstance(attention, dict) and attention.get("kind"):
+            if _numeric_count(attention.get("count")) > 0:
+                return True
+
+        return bool(
+            session.get("is_streaming")
+            or session.get("active_stream_id")
+            or session.get("pending_user_message")
+            or session.get("has_pending_user_message")
+        )
 
     def _all_sessions_for_sidebar():
         try:
@@ -2087,6 +2121,16 @@ def _build_session_list_cache_payload(
         diag_stage("cli_cap")
         archived_scoped = _cap_recent_cli_sessions(archived_scoped, cli_cap=CLI_VISIBLE_SESSION_CAP)
         visible_scoped = _cap_recent_cli_sessions(visible_scoped, cli_cap=CLI_VISIBLE_SESSION_CAP)
+    if visible_only:
+        archived_scoped = [
+            s for s in archived_scoped if _session_has_server_visible_messages(s)
+        ]
+        visible_scoped = [
+            s for s in visible_scoped if _session_has_server_visible_messages(s)
+        ]
+    if exclude_hidden:
+        archived_scoped = [s for s in archived_scoped if not s.get("default_hidden")]
+        visible_scoped = [s for s in visible_scoped if not s.get("default_hidden")]
     archived_webui_count = sum(
         1 for s in archived_scoped
         if s.get("archived") and not _is_cli_session_for_settings(s)
@@ -2097,6 +2141,18 @@ def _build_session_list_cache_payload(
     )
     archived_count = archived_webui_count + archived_cli_count
     scoped = archived_scoped if include_archived else visible_scoped
+    webui_session_count = sum(
+        1 for s in scoped
+        if not _is_cli_session_for_settings(s)
+    )
+    cli_session_count = sum(
+        1 for s in scoped
+        if _is_cli_session_for_settings(s)
+    )
+    if sidebar_source == "webui":
+        scoped = [s for s in scoped if not _is_cli_session_for_settings(s)]
+    elif sidebar_source == "cli":
+        scoped = [s for s in scoped if _is_cli_session_for_settings(s)]
     if not include_archived:
         diag_stage("filter_archived_sessions")
     diag_stage("visible_lineage_metadata")
@@ -2110,6 +2166,8 @@ def _build_session_list_cache_payload(
         "archived_count": archived_count,
         "archived_webui_count": archived_webui_count,
         "archived_cli_count": archived_cli_count,
+        "webui_session_count": webui_session_count,
+        "cli_session_count": cli_session_count,
         "include_archived": include_archived,
         "all_profiles": all_profiles,
         "active_profile": active_profile,
@@ -2140,7 +2198,7 @@ def _session_list_payload_to_response(payload: dict) -> dict:
     for s in runtime_rows:
         item = _sidebar_session_response_item(s, redact_enabled=_redact_enabled) if isinstance(s, dict) else {}
         safe_merged.append(item)
-    return {
+    response = {
         "sessions": safe_merged,
         "cli_count": int(payload.get("cli_count", 0)),
         "archived_count": int(payload.get("archived_count", 0)),
@@ -2153,6 +2211,11 @@ def _session_list_payload_to_response(payload: dict) -> dict:
         "server_time": time.time(),
         "server_tz": time.strftime("%z"),
     }
+    if "webui_session_count" in payload:
+        response["webui_session_count"] = int(payload.get("webui_session_count", 0))
+    if "cli_session_count" in payload:
+        response["cli_session_count"] = int(payload.get("cli_session_count", 0))
+    return response
 
 
 def _get_cached_session_list_payload(
@@ -8839,6 +8902,48 @@ def _save_saved_prompts(prompts: list) -> None:
     p.write_text(json.dumps(prompts, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+# In-process cache for the app-shell template. The `/`, `/index.html`, and
+# `/session/<id>` routes are the hottest navigations and each re-read the
+# ~190 KB static/index.html from disk and re-ran the two process-constant
+# substitutions (__WEBUI_VERSION__, __MAX_UPLOAD_BYTES__) on every request.
+# Those values are fixed for the process lifetime, so we cache the partially
+# rendered template here, keyed by (size, nanosecond mtime) exactly like
+# _STATIC_CACHE so a redeploy is picked up without a restart. The two values
+# that genuinely vary per request — the per-session CSRF token and the runtime
+# extension tags (inject_extension_tags) — are still applied on each request
+# against the cached base, so caching changes no observable output.
+_INDEX_SHELL_CACHE: dict = {}
+_INDEX_SHELL_CACHE_LOCK = threading.Lock()
+
+
+def _render_index_shell_base() -> str:
+    """Return static/index.html with the process-constant tokens substituted.
+
+    Cached and invalidated on (size, mtime_ns) change. The CSRF token and
+    extension-tag injection are intentionally NOT applied here — they vary per
+    request and are applied by the caller against this base string.
+    """
+    from api.updates import WEBUI_VERSION
+
+    st = _INDEX_HTML_PATH.stat()
+    sig = (st.st_size, st.st_mtime_ns)
+    with _INDEX_SHELL_CACHE_LOCK:
+        cached = _INDEX_SHELL_CACHE.get("base")
+        if cached and cached[0] == sig:
+            return cached[1]
+    from urllib.parse import quote
+
+    version_token = quote(WEBUI_VERSION, safe="")
+    base = (
+        _INDEX_HTML_PATH.read_text(encoding="utf-8")
+        .replace("__WEBUI_VERSION__", version_token)
+        .replace("__MAX_UPLOAD_BYTES__", str(MAX_UPLOAD_BYTES))
+    )
+    with _INDEX_SHELL_CACHE_LOCK:
+        _INDEX_SHELL_CACHE["base"] = (sig, base)
+    return base
+
+
 def handle_get(handler, parsed) -> bool:
     """Handle all GET routes. Returns True if handled, False for 404."""
 
@@ -8860,9 +8965,6 @@ def handle_get(handler, parsed) -> bool:
 
     if parsed.path in ("/", "/index.html") or parsed.path.startswith("/session/"):
         try:
-            from urllib.parse import quote
-            from api.updates import WEBUI_VERSION
-            version_token = quote(WEBUI_VERSION, safe="")
             from api.extensions import inject_extension_tags
 
             csrf_token = ""
@@ -8876,11 +8978,11 @@ def handle_get(handler, parsed) -> bool:
             except Exception:
                 csrf_token = ""
 
-            html = (
-                _INDEX_HTML_PATH.read_text(encoding="utf-8")
-                .replace("__WEBUI_VERSION__", version_token)
-                .replace("__MAX_UPLOAD_BYTES__", str(MAX_UPLOAD_BYTES))
-                .replace("__CSRF_TOKEN_JSON__", json.dumps(csrf_token))
+            # The disk read + process-constant token substitutions are cached;
+            # only the per-session CSRF token and per-request extension tags are
+            # applied here (see _render_index_shell_base).
+            html = _render_index_shell_base().replace(
+                "__CSRF_TOKEN_JSON__", json.dumps(csrf_token)
             )
             return t(
                 handler,
@@ -9745,6 +9847,12 @@ def handle_get(handler, parsed) -> bool:
             active_profile = get_active_profile_name()
             all_profiles = _all_profiles_enabled(parsed)
             include_archived = _query_flag(parsed, "include_archived")
+            exclude_hidden = _query_flag(parsed, "exclude_hidden")
+            sidebar_source = parse_qs(parsed.query).get("sidebar_source", [""])[0].strip().lower() or None
+            if sidebar_source not in ("webui", "cli"):
+                sidebar_source = None
+            # /api/sessions is the default sidebar contract, so keep the route-owned
+            # visible-row filter in the shared cache builder for both cache hits and misses.
             key = _session_list_cache_key(
                 active_profile=active_profile,
                 all_profiles=all_profiles,
@@ -9752,7 +9860,10 @@ def handle_get(handler, parsed) -> bool:
                 show_previous_messaging_sessions=show_previous_messaging_sessions,
                 show_cron_sessions=show_cron_sessions,
                 include_archived=include_archived,
+                exclude_hidden=exclude_hidden,
+                visible_only=True,
                 source_filter=agent_session_source_filter,
+                sidebar_source=sidebar_source,
             )
             # Keep the visible /api/sessions contract unchanged even though the
             # heavy lifting now lives in the cache builder: profile scoping via
@@ -9767,7 +9878,10 @@ def handle_get(handler, parsed) -> bool:
                     show_previous_messaging_sessions=show_previous_messaging_sessions,
                     show_cron_sessions=show_cron_sessions,
                     include_archived=include_archived,
+                    exclude_hidden=exclude_hidden,
+                    visible_only=True,
                     source_filter=agent_session_source_filter,
+                    sidebar_source=sidebar_source,
                     diag=diag,
                 ),
                 diag=diag,
