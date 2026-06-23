@@ -945,6 +945,51 @@ def test_runtime_journal_snapshot_includes_live_anchor_activity_scene(monkeypatc
     assert rows[3]["status"] == "running"
 
 
+def test_runtime_journal_snapshot_dedupes_reasoning_interim_progress_echo(monkeypatch):
+    from api import routes
+
+    stream_id = "stream-live-reasoning-interim-echo"
+    progress = "我先检查当前仓库状态，然后定位重复渲染路径。"
+    events = [
+        {
+            "event": "reasoning",
+            "seq": 1,
+            "event_id": f"{stream_id}:1",
+            "created_at": 1.0,
+            "payload": {"text": progress},
+        },
+        {
+            "event": "interim_assistant",
+            "seq": 2,
+            "event_id": f"{stream_id}:2",
+            "created_at": 2.0,
+            "payload": {"text": progress},
+        },
+    ]
+    monkeypatch.setattr(
+        routes,
+        "find_run_summary",
+        lambda sid: {
+            "session_id": "session-live-reasoning-interim-echo",
+            "last_seq": 2,
+            "last_event_id": f"{stream_id}:2",
+        },
+    )
+    monkeypatch.setattr(
+        routes,
+        "read_run_events",
+        lambda session_id, run_id: {"events": events},
+    )
+
+    snapshot = routes._run_journal_live_snapshot(stream_id)
+    rows = snapshot["anchor_activity_scene"]["activity_rows"]
+
+    assert snapshot["last_assistant_text"] == progress
+    assert snapshot["last_reasoning_text"] == ""
+    assert [row["role"] for row in rows] == ["prose"]
+    assert rows[0]["text"] == progress
+
+
 def test_runtime_journal_snapshot_has_running_anchor_row_before_first_token(monkeypatch):
     from api import routes
 

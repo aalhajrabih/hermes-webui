@@ -1235,6 +1235,60 @@
   @keyframes sessionListFlipIn{0%{opacity:0;transform:perspective(700px) rotateX(-8deg) translateY(10px) scale(.985);}100%{opacity:1;transform:perspective(700px) rotateX(0) translateY(0) scale(1);}}
   @keyframes sessionAttentionPulse{0%,100%{filter:saturate(1);box-shadow:0 0 0 1px color-mix(in srgb,var(--error) 42%,transparent),0 0 0 0 color-mix(in srgb,var(--error) 18%,transparent);}50%{filter:saturate(1.12);box-shadow:0 0 0 1px color-mix(in srgb,var(--error) 55%,transparent),0 0 0 4px color-mix(in srgb,var(--error) 10%,transparent);}}
   @keyframes spin{to{transform:rotate(360deg);}}
+  /* ── Loading skeletons (profile switch + cold load) ─────────────────────────
+     A restrained shimmer that mirrors the real row anatomy so the transition
+     into loaded content is seamless. Uses theme tokens so it adapts to
+     light/dark/skins automatically. (#4662 Phase 1) */
+  .skeleton-list{padding:2px 0;}
+  .skeleton-group-label{height:9px;width:58px;margin:10px 10px 6px;border-radius:var(--radius-pill);
+    background:var(--skeleton-base,color-mix(in srgb,var(--text) 8%,transparent));opacity:.5;}
+  .skeleton-group-label:first-child{margin-top:6px;}
+  /* Single-line rows that mirror the real .session-item: a title bar with a
+     short right-aligned timestamp bar. Keeps row height + rhythm aligned so the
+     swap to real content doesn't shift the layout. */
+  .skeleton-row{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:8px;margin-bottom:2px;border-radius:8px;min-height:17px;}
+  .skeleton-bar{height:10px;border-radius:var(--radius-pill);
+    background:linear-gradient(90deg,
+      var(--skeleton-base,color-mix(in srgb,var(--text) 8%,transparent)) 0%,
+      var(--skeleton-base,color-mix(in srgb,var(--text) 8%,transparent)) 28%,
+      var(--skeleton-sheen,color-mix(in srgb,var(--text) 24%,transparent)) 50%,
+      var(--skeleton-base,color-mix(in srgb,var(--text) 8%,transparent)) 72%,
+      var(--skeleton-base,color-mix(in srgb,var(--text) 8%,transparent)) 100%);
+    background-size:200% 100%;animation:skeletonSheen 1.25s ease-in-out infinite;}
+  .skeleton-row .skeleton-title{min-width:0;}
+  .skeleton-row .skeleton-stamp{height:8px;width:16px;flex:0 0 auto;opacity:.55;}
+  /* Tree-row skeleton for the workspace file panel */
+  .skeleton-tree{padding:8px;}
+  .skeleton-tree-row{display:flex;align-items:center;gap:8px;height:28px;padding:0 2px;}
+  .skeleton-tree-row .skeleton-glyph{width:13px;height:13px;border-radius:3px;flex:0 0 auto;
+    background:linear-gradient(90deg,
+      var(--skeleton-base,color-mix(in srgb,var(--text) 8%,transparent)) 0%,
+      var(--skeleton-sheen,color-mix(in srgb,var(--text) 24%,transparent)) 50%,
+      var(--skeleton-base,color-mix(in srgb,var(--text) 8%,transparent)) 100%);
+    animation:skeletonSheen 1.25s ease-in-out infinite;background-size:200% 100%;}
+  .skeleton-tree-row .skeleton-name{min-width:0;}
+  .skeleton-tree-row .skeleton-size{height:8px;width:22px;flex:0 0 auto;margin-left:auto;opacity:.5;}
+  /* Gentle entrance so the skeleton itself doesn't pop in harshly. The
+     per-row stagger delay is set inline in JS (showSessionListSkeleton),
+     because group-label siblings are interleaved with rows so a CSS
+     :nth-child stagger would skip most rows. */
+  .skeleton-row,.skeleton-tree-row{animation:skeletonFadeIn .22s ease both;}
+  /* Group labels rest at opacity:.5 (see base rule). The shared skeletonFadeIn
+     ends at opacity:1 with fill-mode:both, which would override that resting .5
+     for the full time the skeleton is on screen — so labels get a dedicated
+     fade that ends at .5. The static opacity:.5 on the base rule remains for the
+     reduced-motion path (animation:none) below. (@rodboev/greptile review, #4662) */
+  .skeleton-group-label{animation:skeletonFadeInDim .22s ease both;}
+  @keyframes skeletonSheen{0%{background-position:200% 0;}100%{background-position:-200% 0;}}
+  @keyframes skeletonFadeIn{from{opacity:0;}to{opacity:1;}}
+  @keyframes skeletonFadeInDim{from{opacity:0;}to{opacity:.5;}}
+  :root{--skeleton-base:color-mix(in srgb,var(--text) 8%,transparent);--skeleton-sheen:color-mix(in srgb,var(--text) 22%,transparent);}
+  :root.dark{--skeleton-base:color-mix(in srgb,#fff 6%,transparent);--skeleton-sheen:color-mix(in srgb,#fff 20%,transparent);}
+  @media (prefers-reduced-motion:reduce){
+    .skeleton-bar,.skeleton-tree-row .skeleton-glyph{animation:none;background:var(--skeleton-base,color-mix(in srgb,var(--text) 10%,transparent));}
+    .skeleton-row,.skeleton-tree-row,.skeleton-group-label{animation:none;}
+  }
   .session-item.new-flash{animation:newflash 1.4s ease-out forwards;}
   .session-item.session-list-flip-enter{animation:sessionListFlipIn .28s cubic-bezier(.2,.8,.2,1) backwards;transform-origin:center top;}
   /* Collapsible date group headers */
@@ -2773,6 +2827,10 @@
 /* ── Message action buttons (copy, edit, retry) ── */
 .msg-actions{display:flex;align-items:center;gap:2px;opacity:0;transition:opacity .15s;margin-left:auto;}
 .msg-row:hover .msg-actions{opacity:1;}
+/* Keep !important so this beats equal-specificity .msg-foot-with-usage fades during measurement rerenders. */
+.vscroll-measuring .msg-foot,
+.vscroll-measuring .msg-actions,
+.vscroll-measuring .msg-time{transition:none !important;}
 .msg-action-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:2px 5px;border-radius:5px;transition:color .12s,background .12s;line-height:1;}
 .msg-action-btn:hover{color:var(--accent-text);background:var(--accent-bg);}
 .selected-text-reply-btn{position:fixed;z-index:1200;display:inline-flex;align-items:center;gap:6px;padding:7px 11px;border:2px solid var(--accent);border-radius:999px;background:var(--bg);color:var(--text);box-shadow:0 8px 24px rgba(0,0,0,.26),0 0 0 1px var(--surface);font-size:12px;font-weight:700;line-height:1;cursor:pointer;opacity:0;pointer-events:none;transform:translateY(4px);transition:opacity .12s ease,transform .12s ease,background .12s ease,border-color .12s ease;user-select:none;}
@@ -5171,13 +5229,21 @@ main.main > #mainPlugin{display:none;}
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  /* #4724-followup: wrap to a second line on narrow screens (mobile / split panes)
+     instead of overflowing the row. A long model name + duration + token/cost stats
+     can exceed the width; without wrap the per-message action buttons get pushed off
+     the right edge and become unreachable on mobile. Wrapping keeps every stat fully
+     readable (no ellipsis) and the buttons on-screen; on desktop where it already fits,
+     wrap never triggers so nothing changes. */
+  flex-wrap: wrap;
+  row-gap: 2px;
   gap: 6px;
   margin-top: 4px;
   font-size: 11px;
   color: var(--muted);
 }
-.msg-foot .msg-actions { opacity: 1; margin-left: 0; }
-.msg-foot .msg-time { font-size: 10.5px; opacity: .75; }
+.msg-foot .msg-actions { opacity: 1; margin-left: 0; flex: 0 0 auto; }
+.msg-foot .msg-time { font-size: 10.5px; opacity: .75; flex: 0 0 auto; }
 .session-jump-btn--inline {
   position: static;
   right: auto;

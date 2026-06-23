@@ -6,6 +6,7 @@ Tests use a self-signed certificate generated at test time via openssl.
 import http.client
 import json
 import os
+import socket
 import ssl
 import subprocess
 import sys
@@ -20,6 +21,38 @@ sys.path.insert(0, str(Path(__file__).parent))
 from conftest import requires_fcntl
 
 ROOT = Path(__file__).parent.parent
+
+
+def _run_config_probe(code: str, env=None, *, attempts: int = 3, timeout: int = 60):
+    """Run a short `python -c` probe that imports api.config, with retries.
+
+    Importing api.config in a fresh subprocess is heavyweight, and under a fully
+    parallel test suite the box can be saturated enough that a 10s timeout trips
+    and the runner SIGKILLs the child (returncode -9) — a pure resource-contention
+    flake, not a logic failure. Use a generous timeout and retry the spawn on
+    TimeoutExpired / SIGKILL so the full-suite run is deterministic (#4740 sweep:
+    zero tolerance for load-dependent flakes). A genuine non-zero exit with output
+    is returned immediately (no retry) so real failures still surface fast.
+    """
+    last_exc = None
+    for attempt in range(attempts):
+        try:
+            r = subprocess.run(
+                [sys.executable, "-c", code],
+                capture_output=True, text=True, timeout=timeout,
+                cwd=str(ROOT), env=env,
+            )
+        except subprocess.TimeoutExpired as exc:
+            last_exc = exc
+            continue  # contention — respawn
+        # returncode -9 == SIGKILL (OOM/oversubscription under load): retry.
+        if r.returncode == -9 and attempt < attempts - 1:
+            continue
+        return r
+    raise AssertionError(
+        f"config probe subprocess did not complete after {attempts} attempts "
+        f"(timeout={timeout}s each); last error: {last_exc!r}"
+    )
 
 
 def _gen_test_cert(tmpdir: Path) -> tuple[str, str]:
@@ -148,11 +181,7 @@ class TestTLSConfigFlag(unittest.TestCase):
             from api.config import TLS_ENABLED
             print(TLS_ENABLED)
         """)
-        r = subprocess.run(
-            [os.sys.executable, "-c", code],
-            capture_output=True, text=True, timeout=10,
-            cwd=str(ROOT),
-        )
+        r = _run_config_probe(code)
         self.assertEqual(r.stdout.strip(), "True")
 
     def test_tls_enabled_false_when_env_absent(self):
@@ -165,11 +194,7 @@ class TestTLSConfigFlag(unittest.TestCase):
             from api.config import TLS_ENABLED
             print(TLS_ENABLED)
         """)
-        r = subprocess.run(
-            [os.sys.executable, "-c", code],
-            capture_output=True, text=True, timeout=10,
-            cwd=str(ROOT), env=env,
-        )
+        r = _run_config_probe(code, env=env)
         self.assertEqual(r.stdout.strip(), "False")
 
     def test_tls_enabled_false_when_only_cert_set(self):
@@ -180,11 +205,7 @@ class TestTLSConfigFlag(unittest.TestCase):
             from api.config import TLS_ENABLED
             print(TLS_ENABLED)
         """)
-        r = subprocess.run(
-            [os.sys.executable, "-c", code],
-            capture_output=True, text=True, timeout=10,
-            cwd=str(ROOT), env=env,
-        )
+        r = _run_config_probe(code, env=env)
         self.assertEqual(r.stdout.strip(), "False")
 
 
@@ -222,6 +243,39 @@ class TestTLSEndToEnd(unittest.TestCase):
         data = json.loads(resp.read())
         self.assertEqual(data.get("status"), "ok")
         conn.close()
+
+    def test_stalled_tls_handshake_does_not_block_other_clients(self):
+        """A raw TCP client that never speaks TLS must not wedge HTTPS accept()."""
+        port = _find_free_port()
+        self._proc = _start_server(port, cert=self._cert, key=self._key)
+        self.assertTrue(
+            _wait_for_server("127.0.0.1", port, use_ssl=True),
+            "TLS server did not start in time",
+        )
+
+        raw = socket.create_connection(("127.0.0.1", port), timeout=2)
+        try:
+            # Give the kernel a moment to deliver the TCP connection so the
+            # server's accept loop dequeues the raw socket before the HTTPS
+            # request arrives — this guarantees the test exercises the fix.
+            time.sleep(0.05)
+            # Do not send a TLS ClientHello. Before the fix, the listening
+            # SSLSocket performed the handshake in the single accept loop, so
+            # this one idle client blocked every later browser/API request.
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            conn = http.client.HTTPSConnection(
+                "127.0.0.1", port, timeout=2, context=ctx,
+            )
+            conn.request("GET", "/health")
+            resp = conn.getresponse()
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read())
+            self.assertEqual(data.get("status"), "ok")
+            conn.close()
+        finally:
+            raw.close()
 
     def test_http_without_tls_still_works(self):
         self._proc = _start_and_wait(use_ssl=False)

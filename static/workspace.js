@@ -428,11 +428,90 @@ async function openArtifactPath(path){
   openFile(rel);
 }
 
+// ── Workspace file-tree loading skeleton (#4662 Phase 1) ────────────────────
+// During a profile switch the right-hand workspace panel would otherwise keep
+// showing the previous profile's file tree until /api/list resolves. Show a
+// clean tree-shaped skeleton in its place (panel stays open — hiding it is
+// jarring). Varied bar widths + a small indent pattern so it reads as a real
+// directory listing rather than a mechanical repeat.
+const _WS_SKELETON_ROWS = [
+  {w: 38, indent: 0, dir: true},
+  {w: 72, indent: 0},
+  {w: 44, indent: 1},
+  {w: 63, indent: 1},
+  {w: 80, indent: 0},
+  {w: 51, indent: 1},
+  {w: 67, indent: 0},
+  {w: 39, indent: 1},
+];
+
+// Workspace-tree render generation. loadDir() captures this at call time and
+// discards its render/cache writes if a newer generation started meanwhile.
+// #4671 CORE: an empty-session profile switch REUSES the same session_id, so
+// loadDir()'s session_id guard alone can't reject a pre-switch /api/list response
+// that resolves after the new profile's loadDir('.') — it would paint the previous
+// workspace's files over the switched-to profile. switchToProfile() bumps this
+// UNCONDITIONALLY at switch start (even when the workspace panel is closed, since
+// loadDir('.') still runs then), so the stale response is rejected.
+let _wsTreeGen = 0;
+function bumpWorkspaceTreeGen(){
+  _wsTreeGen = (typeof _wsTreeGen === 'number' ? _wsTreeGen : 0) + 1;
+  return _wsTreeGen;
+}
+if(typeof window!=='undefined') window.bumpWorkspaceTreeGen = bumpWorkspaceTreeGen;
+
+function showWorkspaceTreeSkeleton(){
+  const tree = $('fileTree');
+  if(!tree) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'skeleton-tree';
+  wrap.setAttribute('aria-hidden', 'true');
+  for(const spec of _WS_SKELETON_ROWS){
+    const row = document.createElement('div');
+    row.className = 'skeleton-tree-row';
+    if(spec.indent) row.style.paddingLeft = (2 + spec.indent * 16) + 'px';
+    const glyph = document.createElement('div');
+    glyph.className = 'skeleton-glyph';
+    const name = document.createElement('div');
+    name.className = 'skeleton-bar skeleton-name';
+    name.style.width = spec.w + '%';
+    row.appendChild(glyph);
+    row.appendChild(name);
+    // Files (not dirs) show a size on the right; mirror that on leaf rows.
+    if(!spec.dir){
+      const size = document.createElement('div');
+      size.className = 'skeleton-bar skeleton-size';
+      row.appendChild(size);
+    }
+    wrap.appendChild(row);
+  }
+  tree.innerHTML = '';
+  tree.appendChild(wrap);
+  tree.style.display = '';
+}
+
+// Clear a stranded workspace-tree skeleton (#4662 Opus gate). showWorkspaceTreeSkeleton()
+// is shown up front on a profile switch, but the real loadDir('.') that would
+// replace it is skipped when the new profile has no bound workspace — leaving a
+// shimmering skeleton forever. Call this on the no-workspace path so the tree
+// empties instead. Only touches #fileTree when it still holds a skeleton, so
+// it can't clobber a real render.
+function clearWorkspaceTreeSkeleton(){
+  const tree = $('fileTree');
+  if(!tree) return;
+  if(tree.querySelector('.skeleton-tree')) tree.innerHTML = '';
+}
+
 async function loadDir(path, opts={}){
   const preservePreview=!!(opts&&opts.preservePreview);
   const refreshExpanded=!!(opts&&opts.refreshExpanded);
   if(!S.session)return;
   const sessionId=S.session.session_id;
+  const treeGen=_wsTreeGen;  // #4671: capture the workspace-tree generation. A profile
+                             // switch bumps it (bumpWorkspaceTreeGen), so a stale response
+                             // from the previous workspace — which would pass the session_id
+                             // guard because an empty-session switch reuses the same id — is
+                             // rejected here instead of painting the wrong profile's files.
   try{
     if(!path||path==='.'||refreshExpanded){
       S._dirCache={};
@@ -440,7 +519,7 @@ async function loadDir(path, opts={}){
     }
     S.currentDir=path||'.';
     const data=await api(`/api/list?session_id=${encodeURIComponent(sessionId)}&path=${encodeURIComponent(path)}`);
-    if(!S.session||S.session.session_id!==sessionId)return;
+    if(!S.session||S.session.session_id!==sessionId||treeGen!==_wsTreeGen)return;
     S.entries=data.entries||[];renderBreadcrumb();renderFileTree();
     // #2673 — refresh Artifacts tab when its source data (the file tree) updates.
     if(typeof renderSessionArtifacts==='function') renderSessionArtifacts();
@@ -455,7 +534,7 @@ async function loadDir(path, opts={}){
             .then(dc=>({dirPath,entries:dc.entries||[]}))
             .catch(()=>({dirPath,entries:[]}))
         ));
-        if(!S.session||S.session.session_id!==sessionId)return;
+        if(!S.session||S.session.session_id!==sessionId||treeGen!==_wsTreeGen)return;
         for(const {dirPath,entries} of results) S._dirCache[dirPath]=entries;
       }
       if(expanded.size>0)renderFileTree();

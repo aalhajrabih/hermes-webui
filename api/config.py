@@ -25,6 +25,7 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 # ── Basic layout ──────────────────────────────────────────────────────────────
@@ -251,12 +252,52 @@ if _AGENT_DIR is not None:
 else:
     _HERMES_FOUND = False
 
+# ── Thread-local env context ─────────────────────────────────────────────────
+# Defined BEFORE the config-file section because _expand_env_vars() (below) calls
+# _thread_local_env_value() and the import-time reload_config() runs during module
+# load — a forward reference here would NameError on any startup config.yaml that
+# uses a ${VAR} reference. Depends only on os + threading (both imported above).
+_thread_ctx = threading.local()
+
+
+def _thread_local_env_value(name: str, default: str = "") -> str:
+    """Return thread-local profile env first, then process env, for provider reads."""
+    env_name = str(name or "").strip()
+    if not env_name:
+        return default or ""
+
+    thread_env = getattr(_thread_ctx, "env", {})
+    if isinstance(thread_env, dict) and env_name in thread_env:
+        thread_value = thread_env.get(env_name)
+        if thread_value is None:
+            return default or ""
+        return str(thread_value)
+
+    if bool(getattr(_thread_ctx, "block_process_env_fallback", False)):
+        return default or ""
+
+    return str(os.getenv(env_name, default or ""))
+
+
 # ── Config file (reloadable -- supports profile switching) ──────────────────
 
 def _expand_env_vars(obj):
-    """Recursively expand ${VAR} references in config values using os.environ."""
+    """Recursively expand ${VAR} references in config values.
+
+    Uses the thread-local-first profile env lookup (_thread_local_env_value) so a
+    ${VAR} reference in a profile's config.yaml resolves to that profile's value,
+    and — critically — does NOT fall back to the server process os.environ when a
+    profile-scoped readonly/background scope set block_process_env_fallback. The
+    raw (unexpanded) dict is what gets cached; this expansion re-runs on every
+    read against the current thread's scope, so a cross-profile credential
+    (e.g. config api_key: ${ANTHROPIC_TOKEN}) can't be reconstructed from the
+    server process env for a named profile that has no such value (#3961)."""
     if isinstance(obj, str):
-        return re.sub(r"\${([^}]+)}", lambda m: os.environ.get(m.group(1), m.group(0)), obj)
+        return re.sub(
+            r"\${([^}]+)}",
+            lambda m: _thread_local_env_value(m.group(1), m.group(0)),
+            obj,
+        )
     if isinstance(obj, dict):
         return {k: _expand_env_vars(v) for k, v in obj.items()}
     if isinstance(obj, list):
@@ -449,7 +490,29 @@ def reload_config() -> None:
             if config_path.exists():
                 loaded = _yaml.safe_load(config_path.read_text(encoding="utf-8"))
                 if isinstance(loaded, dict):
-                    _cfg_cache.update(_expand_env_vars(loaded))
+                    # The process-global _cfg_cache must reflect PROCESS-env
+                    # expansion, never a profile-scoped block_process_env_fallback
+                    # view — otherwise a reload that fires while a readonly/worker
+                    # scope is active (profile alternation resolves _get_config_path
+                    # to the named profile, #798 TLS) would bake under-expanded
+                    # literal ${VAR}s into the shared cache and starve concurrent
+                    # readers of the module-level `cfg` alias. Expansion re-runs
+                    # per-read elsewhere; here we pin the cache to the unscoped view.
+                    _prev_block = getattr(_thread_ctx, "block_process_env_fallback", False)
+                    _prev_env = getattr(_thread_ctx, "env", None)
+                    try:
+                        _thread_ctx.block_process_env_fallback = False
+                        _thread_ctx.env = {}
+                        _cfg_cache.update(_expand_env_vars(loaded))
+                    finally:
+                        _thread_ctx.block_process_env_fallback = _prev_block
+                        if _prev_env is None:
+                            try:
+                                del _thread_ctx.env
+                            except AttributeError:
+                                pass
+                        else:
+                            _thread_ctx.env = _prev_env
                     try:
                         _cfg_mtime = Path(config_path).stat().st_mtime
                     except OSError:
@@ -1330,13 +1393,13 @@ def _legacy_custom_api_key_env_name(provider_id: object) -> str:
 def _lookup_custom_api_key_env(provider_id: object) -> str | None:
     """Look up sanitized custom-provider env first, then legacy broken shape."""
     env_name = _api_key_env_name(provider_id)
-    api_key = os.getenv(env_name, "").strip()
+    api_key = _thread_local_env_value(env_name).strip()
     if api_key:
         return api_key
 
     legacy_env_name = _legacy_custom_api_key_env_name(provider_id)
     if legacy_env_name and legacy_env_name != env_name:
-        legacy_key = os.getenv(legacy_env_name, "").strip()
+        legacy_key = _thread_local_env_value(legacy_env_name).strip()
         if legacy_key:
             if legacy_env_name not in _LEGACY_CUSTOM_API_KEY_ENV_WARNED:
                 _LEGACY_CUSTOM_API_KEY_ENV_WARNED.add(legacy_env_name)
@@ -2545,13 +2608,13 @@ def resolve_custom_provider_connection(provider_id: str) -> tuple[str | None, st
         if raw_api_key is not None:
             key_text = str(raw_api_key).strip()
             if key_text.startswith("${") and key_text.endswith("}") and len(key_text) > 3:
-                api_key = os.getenv(key_text[2:-1], "").strip() or None
+                api_key = _thread_local_env_value(key_text[2:-1]).strip() or None
             elif key_text:
                 api_key = key_text
         if not api_key:
             key_env = str(raw_key_env or "").strip()
             if key_env:
-                api_key = os.getenv(key_env, "").strip() or None
+                api_key = _thread_local_env_value(key_env).strip() or None
         if not api_key and provider_hint:
             api_key = _lookup_custom_api_key_env(provider_hint)
         return api_key
@@ -4310,6 +4373,90 @@ def _credential_pool_profile_tag() -> str:
         return ""
 
 
+def _pool_entry_payloads(provider_id: str) -> list[dict[str, Any]]:
+    """Return explicit credential-pool entry payloads for the active profile.
+
+    Readonly profile scopes must not let ``load_pool()`` seed from process env,
+    because that can materialize server-default credentials into a named
+    profile's auth store. In that mode, read raw auth.json payloads only.
+    """
+    _pid = _resolve_provider_alias(provider_id)
+    if bool(getattr(_thread_ctx, "block_process_env_fallback", False)):
+        try:
+            from hermes_cli.auth import read_credential_pool as _read_credential_pool
+
+            raw_entries = _read_credential_pool(_pid)
+        except ImportError:
+            return []
+        payloads: list[dict[str, Any]] = []
+        for entry in raw_entries:
+            if not isinstance(entry, dict):
+                continue
+            if _is_ambient_gh_cli_entry(
+                str(entry.get("source", "") or ""),
+                str(entry.get("label", "") or ""),
+                str(entry.get("key_source", "") or ""),
+            ):
+                continue
+            payloads.append(dict(entry))
+        return payloads
+
+    try:
+        from agent.credential_pool import load_pool as _load_pool
+
+        _ck = (_credential_pool_profile_tag(), _pid)
+        _cached = _CREDENTIAL_POOL_CACHE.get(_ck)
+        if _cached is not None:
+            _cp_ts, _cp_pool = _cached
+            if (time.time() - _cp_ts) < 86400.0:
+                _all_entries = _cp_pool.entries() if _cp_pool is not None and hasattr(_cp_pool, "entries") else []
+            else:
+                _cp_pool = _load_pool(_pid)
+                _CREDENTIAL_POOL_CACHE[_ck] = (time.time(), _cp_pool)
+                _all_entries = _cp_pool.entries() if _cp_pool is not None and hasattr(_cp_pool, "entries") else []
+        else:
+            _cp_pool = _load_pool(_pid)
+            _CREDENTIAL_POOL_CACHE[_ck] = (time.time(), _cp_pool)
+            _all_entries = _cp_pool.entries() if _cp_pool is not None and hasattr(_cp_pool, "entries") else []
+    except ImportError:
+        return []
+
+    payloads = []
+    for entry in _all_entries:
+        if _is_ambient_gh_cli_entry(
+            str(getattr(entry, "source", "") or ""),
+            str(getattr(entry, "label", "") or ""),
+            str(getattr(entry, "key_source", "") or ""),
+        ):
+            continue
+        if hasattr(entry, "to_dict") and callable(entry.to_dict):
+            payload = entry.to_dict()
+        elif isinstance(entry, dict):
+            payload = dict(entry)
+        else:
+            try:
+                payload = dict(vars(entry))
+            except TypeError:
+                payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        payload = dict(payload)
+        payload.setdefault("source", str(getattr(entry, "source", "") or ""))
+        payload.setdefault("label", str(getattr(entry, "label", "") or ""))
+        payload.setdefault("key_source", str(getattr(entry, "key_source", "") or ""))
+        runtime_api_key = getattr(entry, "runtime_api_key", None)
+        if runtime_api_key:
+            payload["runtime_api_key"] = runtime_api_key
+        base_url = getattr(entry, "base_url", None)
+        if base_url:
+            payload["base_url"] = base_url
+        inference_base_url = getattr(entry, "inference_base_url", None)
+        if inference_base_url:
+            payload["inference_base_url"] = inference_base_url
+        payloads.append(payload)
+    return payloads
+
+
 def _has_explicit_pool_credentials(provider_id: str) -> bool:
     """Return True when the credential pool has at least one non-ambient entry
     for *provider_id* (i.e. not a gh-cli / GITHUB_TOKEN auto-detect).
@@ -4318,35 +4465,7 @@ def _has_explicit_pool_credentials(provider_id: str) -> bool:
     detection, model listing, live-model fetch) don't pay the ~10s load_pool
     cost more than once per TTL window.
     """
-    try:
-        from agent.credential_pool import load_pool as _load_pool
-
-        _pid = _resolve_provider_alias(provider_id)
-        _ck = (_credential_pool_profile_tag(), _pid)
-        _cached = _CREDENTIAL_POOL_CACHE.get(_ck)
-        if _cached is not None:
-            _cp_ts, _cp_pool = _cached
-            if (time.time() - _cp_ts) < 86400.0:
-                _all_entries = _cp_pool.entries()
-            else:
-                _cp_pool = _load_pool(_pid)
-                _CREDENTIAL_POOL_CACHE[_ck] = (time.time(), _cp_pool)
-                _all_entries = _cp_pool.entries()
-        else:
-            _cp_pool = _load_pool(_pid)
-            _CREDENTIAL_POOL_CACHE[_ck] = (time.time(), _cp_pool)
-            _all_entries = _cp_pool.entries()
-
-        return any(
-            not _is_ambient_gh_cli_entry(
-                str(getattr(e, "source", "") or ""),
-                str(getattr(e, "label", "") or ""),
-                str(getattr(e, "key_source", "") or ""),
-            )
-            for e in _all_entries
-        )
-    except ImportError:
-        return False
+    return bool(_pool_entry_payloads(provider_id))
 _provider_models_invalidated_ts: dict[str, float] = {}  # provider_id -> timestamp of last invalidation
 
 # Disk-backed in-memory cache for get_available_models().
@@ -5454,7 +5573,7 @@ def get_available_models(*, prefer_cache: bool = False) -> dict:
                 "AWS_ACCESS_KEY_ID",
                 "AWS_SECRET_ACCESS_KEY",
             ):
-                val = os.getenv(k)
+                val = _thread_local_env_value(k)
                 if val:
                     all_env[k] = val
             if all_env.get("ANTHROPIC_API_KEY"):
@@ -5777,7 +5896,7 @@ def get_available_models(*, prefer_cache: bool = False) -> dict:
                     "API_KEY",
                 )
                 for key in api_key_vars:
-                    api_key = (all_env.get(key) or os.getenv(key) or "").strip()
+                    api_key = (all_env.get(key) or _thread_local_env_value(key) or "").strip()
                     if api_key:
                         break
 
@@ -5819,7 +5938,7 @@ def get_available_models(*, prefer_cache: bool = False) -> dict:
                 if not _cp_api_key:
                     _cp_key_env = str(_cp.get("key_env") or "").strip()
                     if _cp_key_env:
-                        _cp_api_key = str(os.getenv(_cp_key_env) or "").strip()
+                        _cp_api_key = _thread_local_env_value(_cp_key_env).strip()
                 # Fallback: check credential pool for both api_key and base_url
                 if (not _cp_api_key or not _cp_base_url) and _slug:
                     try:
@@ -6651,7 +6770,9 @@ def get_available_models(*, prefer_cache: bool = False) -> dict:
         if _LIVE_REBUILD_BUDGET_SECONDS <= 0:
             try:
                 # Foreground thread already carries the request-profile TLS;
-                # apply the profile env (no-op for default) for the live probe.
+                # apply the mirrored profile env (no-op for default) for the
+                # live probe because provider_model_ids() still has raw
+                # os.getenv()/HERMES_HOME readers on this synchronous path.
                 _sync_scope = (
                     _prof_env_request("models rebuild (sync)")
                     if _prof_env_request is not None
@@ -7112,7 +7233,9 @@ def _evict_session_agent(session_id: str) -> None:
             logger.debug("Failed to close _session_db on eviction for %s", session_id, exc_info=True)
 
 # ── Thread-local env context ─────────────────────────────────────────────────
-_thread_ctx = threading.local()
+# (_thread_ctx + _thread_local_env_value are defined near the top of this module,
+# above the config-file section, so _expand_env_vars can reference them at the
+# import-time reload_config() without a forward-reference NameError.)
 
 
 def _set_thread_env(**kwargs):

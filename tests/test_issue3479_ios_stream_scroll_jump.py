@@ -64,6 +64,20 @@ def test_live_compression_card_replacement_restores_snapshot_before_follow_settl
     assert capture_idx < replace_idx < restore_idx < settle_idx
 
 
+def test_live_anchor_worklog_rebuild_restores_snapshot_before_follow_settle():
+    body = _function_body(UI_JS, "renderLiveAnchorActivityScene")
+
+    capture_idx = body.index("const scrollSnapshot=_captureMessageScrollSnapshot();")
+    remove_idx = body.index("blocks.querySelectorAll('[data-anchor-scene-owner=\"1\"],[data-anchor-scene-row=\"1\"]')")
+    restore_detail_idx = body.index("_restoreWorklogDetailDisclosureState(blocks, liveDisclosureState);")
+    dedupe_idx = body.index("_dedupeLiveProcessedWorklogAnchors(turn);")
+    move_status_idx = body.index("_moveLiveRunStatusToTurnEnd();")
+    restore_idx = body.index("_restoreMessageScrollSnapshotSameFrame(scrollSnapshot);")
+    settle_idx = body.index("if(typeof scrollIfPinned==='function') scrollIfPinned();")
+
+    assert capture_idx < remove_idx < restore_detail_idx < dedupe_idx < move_status_idx < restore_idx < settle_idx
+
+
 def test_same_frame_snapshot_preserves_bottom_distance_and_unpinned_state():
     capture = _function_body(UI_JS, "_captureMessageScrollSnapshot")
     restore = _function_body(UI_JS, "_restoreMessageScrollSnapshotSameFrame")

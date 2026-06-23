@@ -885,6 +885,181 @@ def filter_runtime_env_for_gateway_parity(env: dict[str, str]) -> dict[str, str]
     return filtered
 
 
+# Credential env vars the agent runtime resolves via raw os.getenv() that are
+# NOT in hermes_cli.auth.PROVIDER_REGISTRY (so the registry-derived scrub set
+# would miss them). Fail-closed list — verified against the installed agent:
+#   CUSTOM_API_KEY            hermes_cli/models.py (generic custom provider key)
+#   AZURE_ANTHROPIC_KEY       hermes_cli/runtime_provider.py (Azure-hosted Anthropic)
+#   AZURE_FOUNDRY_API_KEY     hermes_cli/runtime_provider.py (Azure Foundry key)
+#   AZURE_* identity family   agent/azure_identity_adapter.py (service-principal /
+#                             workload-identity model auth)
+#   AWS_BEARER_TOKEN_BEDROCK  hermes_cli/model_switch.py (Bedrock bearer token)
+#   AWS_* credential chain    agent/bedrock_adapter.py + model_switch._has_aws_creds
+#                             (boto3 access keys, session token, profile,
+#                              container/web-identity credential providers)
+# NOTE: region/base-url config vars (AWS_REGION, AWS_DEFAULT_REGION,
+# AZURE_FOUNDRY_BASE_URL) are deliberately NOT included — they're configuration,
+# not credentials, and the child probe may legitimately need them.
+# Stripping these in a profile-scoped read prevents an empty named profile from
+# inheriting the server-process credential (#3961 residual cross-profile leak).
+_NON_REGISTRY_AGENT_CREDENTIAL_ENV_NAMES: tuple[str, ...] = (
+    "CUSTOM_API_KEY",
+    # Anthropic OAuth/token aliases. These ARE in the agent auth registry, but
+    # are duplicated here as a fail-closed floor so the scrub still covers them
+    # when the agent package can't be imported (e.g. a WebUI-only CI/test env
+    # where hermes_cli.auth is absent) — the registry union is best-effort.
+    "ANTHROPIC_TOKEN",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "AZURE_ANTHROPIC_KEY",
+    "AZURE_FOUNDRY_API_KEY",
+    "AZURE_CLIENT_ID",
+    "AZURE_CLIENT_SECRET",
+    "AZURE_TENANT_ID",
+    "AZURE_FEDERATED_TOKEN_FILE",
+    # Azure managed-identity (App Service MSI / IMDS) credential-source vars —
+    # agent/azure_identity_adapter.py treats these as ManagedIdentityCredential
+    # sources, so an empty named profile must not inherit the host's managed
+    # identity. (NOT AZURE_FOUNDRY_BASE_URL — that's config, kept.)
+    "IDENTITY_ENDPOINT",
+    "IDENTITY_HEADER",
+    "MSI_ENDPOINT",
+    "MSI_SECRET",
+    "AWS_BEARER_TOKEN_BEDROCK",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AWS_PROFILE",
+    "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+    "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+    "AWS_WEB_IDENTITY_TOKEN_FILE",
+)
+
+
+def _agent_registry_credential_env_names() -> set[str]:
+    """Credential env-var names the *agent* runtime reads, beyond the WebUI's own
+    settable-key map. Two sources:
+
+    1. ``hermes_cli.auth.PROVIDER_REGISTRY[*].api_key_env_vars`` — every provider
+       the agent CLI knows, incl. OAuth/token-flow providers like Anthropic's
+       ``ANTHROPIC_TOKEN`` / ``CLAUDE_CODE_OAUTH_TOKEN`` that the WebUI's own
+       ``_PROVIDER_ENV_VAR`` map omits (they aren't WebUI-settable API keys).
+    2. ``_NON_REGISTRY_AGENT_CREDENTIAL_ENV_NAMES`` — a fail-closed fallback for
+       credential env vars the agent resolves via raw ``os.getenv()`` that are NOT
+       in the auth registry (the generic ``CUSTOM_API_KEY`` and the AWS/Bedrock
+       credential family the bedrock adapter relies on).
+
+    A profile scrub built only from the WebUI map would leave all of these in
+    ``os.environ`` — letting an empty named profile inherit the server-process
+    credential on the quota subprocess and detached-worker model-rebuild paths
+    (#3961 residual cross-profile leak)."""
+    names: set[str] = set(_NON_REGISTRY_AGENT_CREDENTIAL_ENV_NAMES)
+    try:
+        from hermes_cli.auth import PROVIDER_REGISTRY
+
+        registry = PROVIDER_REGISTRY
+        items = registry.items() if hasattr(registry, "items") else enumerate(registry)
+        for _key, entry in items:
+            env_vars = getattr(entry, "api_key_env_vars", None)
+            for env_var in env_vars or ():
+                if env_var:
+                    names.add(str(env_var))
+    except Exception:
+        logger.debug(
+            "Failed to load agent registry credential env names for profile scope",
+            exc_info=True,
+        )
+    return names
+
+
+def _profile_secret_env_names(profile_home_path: Path) -> set[str]:
+    names: set[str] = set()
+    try:
+        from api.providers import _provider_credential_env_vars
+
+        names.update(_provider_credential_env_vars())
+    except Exception:
+        logger.debug(
+            "Failed to load provider credential env names for profile scope",
+            exc_info=True,
+        )
+
+    # Also scrub credential env vars the agent runtime resolves directly
+    # (OAuth/token-flow providers absent from the WebUI's settable-key map) so a
+    # profile-scoped read can't inherit the server process's ANTHROPIC_TOKEN /
+    # CLAUDE_CODE_OAUTH_TOKEN etc. (#3961 cross-profile residual leak).
+    names.update(_agent_registry_credential_env_names())
+
+    config_path = Path(profile_home_path) / "config.yaml"
+    if not config_path.exists():
+        return names
+    try:
+        payload = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        logger.debug(
+            "Failed to inspect custom-provider credential env names from %s",
+            config_path,
+            exc_info=True,
+        )
+        return names
+
+    custom_providers = payload.get("custom_providers") if isinstance(payload, dict) else None
+    if not isinstance(custom_providers, list):
+        return names
+    for custom_provider in custom_providers:
+        if not isinstance(custom_provider, dict):
+            continue
+        key_env = str(custom_provider.get("key_env") or "").strip()
+        if key_env:
+            names.add(key_env)
+        api_key = str(custom_provider.get("api_key") or "").strip()
+        match = re.fullmatch(r"\$\{([^}]+)\}", api_key)
+        if match:
+            env_name = str(match.group(1) or "").strip()
+            if env_name:
+                names.add(env_name)
+    return names
+
+
+def _apply_profile_env_to_process(
+    process_env,
+    safe_runtime_env: dict[str, str],
+    *,
+    secret_env_names: set[str],
+) -> dict[str, Optional[str]]:
+    scoped_keys = set(safe_runtime_env) | set(secret_env_names)
+    previous_env = {key: process_env.get(key) for key in scoped_keys}
+    for key in secret_env_names:
+        if key not in safe_runtime_env:
+            process_env.pop(key, None)
+    return previous_env
+
+
+_secret_scope_available = None
+
+
+def _resolve_secret_scope_module():
+    global _secret_scope_available
+    import sys as _sys
+    mod = _sys.modules.get('agent.secret_scope')
+    if mod is not None:
+        return mod
+    if _secret_scope_available is False:
+        return None
+    if _secret_scope_available is None:
+        try:
+            import importlib.util
+            _secret_scope_available = importlib.util.find_spec('agent') is not None
+        except Exception:
+            _secret_scope_available = False
+    if _secret_scope_available:
+        try:
+            from agent.secret_scope import set_secret_scope, reset_secret_scope  # noqa: F401
+            return _sys.modules.get('agent.secret_scope')
+        except ImportError:
+            _secret_scope_available = False
+    return None
+
+
 @contextmanager
 def profile_env_for_background_worker(
     session,
@@ -914,6 +1089,7 @@ def profile_env_for_background_worker(
         profile_home_path = Path(get_hermes_home_for_profile(profile))
         runtime_env = get_profile_runtime_env(profile_home_path)
         safe_runtime_env = filter_runtime_env_for_gateway_parity(runtime_env)
+        secret_env_names = _profile_secret_env_names(profile_home_path)
     except Exception:
         log.debug(
             "Failed to resolve profile env for %s profile %s; falling back to current env",
@@ -936,10 +1112,29 @@ def profile_env_for_background_worker(
     old_hermes_home = None
     had_hermes_home = False
     previous_thread_env = getattr(_thread_ctx, "env", {}).copy()
+    previous_block_process_env = bool(
+        getattr(_thread_ctx, "block_process_env_fallback", False)
+    )
+    _scope_token = None
+    _has_scope = False
     try:
         _set_thread_env(**thread_env)
+        _thread_ctx.block_process_env_fallback = True
+        _secret_scope_mod = _resolve_secret_scope_module()
+        _scope_token = None
+        _has_scope = False
+        if _secret_scope_mod is not None:
+            try:
+                _scope_token = _secret_scope_mod.set_secret_scope(thread_env)
+                _has_scope = True
+            except Exception:
+                pass
         with _ENV_LOCK:
-            old_runtime_env = {key: os.environ.get(key) for key in safe_runtime_env}
+            old_runtime_env = _apply_profile_env_to_process(
+                os.environ,
+                safe_runtime_env,
+                secret_env_names=secret_env_names,
+            )
             had_hermes_home = "HERMES_HOME" in os.environ
             old_hermes_home = os.environ.get("HERMES_HOME")
             skill_home_snapshot = snapshot_skill_home_modules()
@@ -956,6 +1151,12 @@ def profile_env_for_background_worker(
                 )
         yield
     finally:
+        if _has_scope and _secret_scope_mod is not None:
+            try:
+                _secret_scope_mod.reset_secret_scope(_scope_token)
+            except Exception:
+                pass
+        _thread_ctx.block_process_env_fallback = previous_block_process_env
         if previous_thread_env:
             _set_thread_env(**previous_thread_env)
         else:
@@ -975,31 +1176,113 @@ def profile_env_for_background_worker(
 
 
 @contextmanager
-def profile_env_for_active_request(
+def profile_env_for_active_request_readonly(
     purpose: str = "provider/model read",
     logger_override: Optional[logging.Logger] = None,
 ):
-    """Apply the active per-request profile's env around a read-only API call (#3957).
+    """Apply the active per-request profile's env to thread-local state only (#3957).
 
     WebUI profile switching is per-client/cookie scoped (issue #798): a browser
     on a named profile sets a ``hermes_profile`` cookie, which ``server.py``
-    turns into a thread-local via ``set_request_profile()``.  But the per-client
-    switch deliberately does NOT reload the profile's ``.env`` into
-    ``os.environ`` (that would mutate process-global state shared with other
-    clients).  So read-only endpoints that resolve provider credentials through
-    ``os.environ`` / ``HERMES_HOME`` — ``/api/providers`` (``get_auth_status``
-    probes) and ``/api/models`` (``provider_model_ids`` / custom-key lookup) —
-    resolve against the *default* profile's credentials instead of the active
-    one.  Symptoms: Settings → Providers times out and the model picker shows
-    only the default profile's models.
+    turns into a thread-local via ``set_request_profile()``.  This wrapper keeps
+    provider-credential reads isolated to the request profile and does not touch
+    process-wide environment for read-only endpoints.
 
-    This mirrors what streaming already does for the duration of an agent run
-    (``profile_env_for_background_worker``): it temporarily applies the active
-    profile's ``.env`` + terminal config for the duration of the wrapped read,
-    then restores the previous env under ``_ENV_LOCK``.
+    A thread-local read-only scope is used for ``/api/providers`` and
+    ``/api/models`` flows that now resolve credentials through thread-local
+    environment first. It also sets a context-local Hermes-home override so
+    agent-side auth-store reads stay on the active profile without mutating
+    process-global ``os.environ``.
 
-    No-ops (zero overhead, byte-identical behavior) for the default/root profile
-    — the overwhelmingly common single-profile deployment is unaffected.
+    No-ops for the default/root profile, which is the common single-profile
+    deployment case.
+    """
+    profile = (get_active_profile_name() or "").strip()
+    if not profile or _is_root_profile(profile):
+        yield
+        return
+    try:
+        from api.config import _clear_thread_env, _set_thread_env, _thread_ctx
+        profile_home_path = Path(get_hermes_home_for_profile(profile))
+        runtime_env = get_profile_runtime_env(profile_home_path)
+        safe_runtime_env = filter_runtime_env_for_gateway_parity(runtime_env)
+    except Exception:
+        log = logger_override or logger
+        log.debug(
+            "Failed to resolve profile env for active request profile %s in %s; "
+            "falling back to current env",
+            profile,
+            purpose,
+            exc_info=True,
+        )
+        yield
+        return
+    try:
+        from hermes_constants import (
+            reset_hermes_home_override,
+            set_hermes_home_override,
+        )
+    except Exception:
+        reset_hermes_home_override = None
+        set_hermes_home_override = None
+
+    thread_env = dict(safe_runtime_env)
+    thread_env["HERMES_HOME"] = str(profile_home_path)
+    previous_thread_env = getattr(_thread_ctx, "env", {}).copy()
+    previous_block_process_env = bool(
+        getattr(_thread_ctx, "block_process_env_fallback", False)
+    )
+    home_override_token = None
+    _scope_token = None
+    _has_scope = False
+    try:
+        _set_thread_env(**thread_env)
+        _thread_ctx.block_process_env_fallback = True
+        _secret_scope_mod = _resolve_secret_scope_module()
+        _scope_token = None
+        _has_scope = False
+        if _secret_scope_mod is not None:
+            try:
+                _scope_token = _secret_scope_mod.set_secret_scope(thread_env)
+                _has_scope = True
+            except Exception:
+                pass
+        if set_hermes_home_override is not None:
+            home_override_token = set_hermes_home_override(profile_home_path)
+        yield
+    finally:
+        if _has_scope and _secret_scope_mod is not None:
+            try:
+                _secret_scope_mod.reset_secret_scope(_scope_token)
+            except Exception:
+                pass
+        if home_override_token is not None and reset_hermes_home_override is not None:
+            try:
+                reset_hermes_home_override(home_override_token)
+            except Exception:
+                (logger_override or logger).debug(
+                    "Failed to reset Hermes-home override for active request profile %s in %s",
+                    profile,
+                    purpose,
+                    exc_info=True,
+                )
+        _thread_ctx.block_process_env_fallback = previous_block_process_env
+        if previous_thread_env:
+            _set_thread_env(**previous_thread_env)
+        else:
+            _clear_thread_env()
+
+
+@contextmanager
+def profile_env_for_active_request(
+    purpose: str = "active request",
+    logger_override: Optional[logging.Logger] = None,
+):
+    """Apply the active per-request profile through the legacy mirrored path.
+
+    Some request-scoped readers still delegate into Hermes helpers that resolve
+    credentials directly from process env or ``get_hermes_home()``. Those paths
+    stay on the mirrored scope until they are fully audited.
     """
     profile = (get_active_profile_name() or "").strip()
     if not profile or _is_root_profile(profile):
