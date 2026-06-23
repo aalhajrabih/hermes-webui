@@ -436,6 +436,8 @@ let _messageVirtualMeasurementRetryCount=0;
 let _messageVirtualScrollActive=false;
 let _messageVirtualScrollSettleTimer=0;
 let _messageVirtualDeferredMeasurement=null;
+let _msgNodeRecycleEnabled=false;
+const _recycleStash=new Map();
 function _markMessageVirtualScrollActive(){
   _messageVirtualScrollActive=true;
   clearTimeout(_messageVirtualScrollSettleTimer);
@@ -965,7 +967,9 @@ function _scheduleMessageVirtualizedRender(force){
     const liveWindow=_currentMessageVirtualWindow(liveVisWithIdx,_messageVirtualKeepTailCount());
     const liveKey=_messageVirtualWindowKeyFor(liveWindow);
     if(!force&&liveKey===_messageVirtualWindowKey) return;
-    _compensateScrollForMeasurementDelta(()=>{ renderMessages({ preserveScroll:true }); });
+    _msgNodeRecycleEnabled=true;
+    try{ _compensateScrollForMeasurementDelta(()=>{ renderMessages({ preserveScroll:true }); }); }
+    finally{ _msgNodeRecycleEnabled=false; }
   });
 }
 
@@ -11114,6 +11118,14 @@ function renderMessages(options){
     S.session && typeof S.session.compression_anchor_summary==='string'
   ) ? S.session.compression_anchor_summary.trim() : '';
   const worklogDetailDisclosureState=_captureWorklogDetailDisclosureState(inner);
+  _recycleStash.clear();
+  if(_msgNodeRecycleEnabled){
+    for(const child of Array.from(inner.children)){
+      if(!child.dataset||!child.dataset.msgIdx) continue;
+      if(child.id==='liveAssistantTurn'||child.querySelector&&child.querySelector('#liveAssistantTurn')) continue;
+      _recycleStash.set(Number(child.dataset.msgIdx), child);
+    }
+  }
   inner.innerHTML='';
   const compressionNode=compressionState?_compressionCardsNode(compressionState):null;
   const {message:referenceMessage, rawIdx:referenceMessageRawIdx}=_latestCompressionReferenceMessage(
@@ -11381,22 +11393,43 @@ function renderMessages(options){
 
     if(isUser){
       currentAssistantTurn=null;
-      const row=document.createElement('div');
-      row.className='msg-row';
-      row.id=_userMessageDomId(rawIdx);
-      row.dataset.msgIdx=rawIdx;
-      row.dataset.sessionMsgIdx=_messageSessionIndexForRawIdx(rawIdx);
-      row.dataset.messageAnchorKey=_messageViewportAnchorKeyForMessage(m);
-      row.dataset.role='user';
-      row.dataset.rawText=String(displayContent).trim();
-      row.innerHTML=`${filesHtml}<div class="msg-body">${bodyHtml}</div>${footHtml}`;
+      let row=_msgNodeRecycleEnabled?_recycleStash.get(rawIdx):null;
+      const newRawText=String(displayContent).trim();
+      if(row){
+        row.id=_userMessageDomId(rawIdx);
+        row.dataset.msgIdx=rawIdx;
+        row.dataset.sessionMsgIdx=_messageSessionIndexForRawIdx(rawIdx);
+        row.dataset.messageAnchorKey=_messageViewportAnchorKeyForMessage(m);
+        row.dataset.role='user';
+        if(row.dataset.rawText!==newRawText){
+          row.dataset.rawText=newRawText;
+          row.innerHTML=`${filesHtml}<div class="msg-body">${bodyHtml}</div>${footHtml}`;
+        }
+      }else{
+        row=document.createElement('div');
+        row.className='msg-row';
+        row.id=_userMessageDomId(rawIdx);
+        row.dataset.msgIdx=rawIdx;
+        row.dataset.sessionMsgIdx=_messageSessionIndexForRawIdx(rawIdx);
+        row.dataset.messageAnchorKey=_messageViewportAnchorKeyForMessage(m);
+        row.dataset.role='user';
+        row.dataset.rawText=newRawText;
+        row.innerHTML=`${filesHtml}<div class="msg-body">${bodyHtml}</div>${footHtml}`;
+      }
       inner.appendChild(row);
       userRows.set(rawIdx, row);
       continue;
     }
 
     if(!currentAssistantTurn){
-      currentAssistantTurn=_createAssistantTurn(tsTitle, isTpsDisplayEnabled()?_formatTurnTps(m._turnTps):'');
+      const recycled=_msgNodeRecycleEnabled?_recycleStash.get(rawIdx):null;
+      if(recycled){
+        const blocks=_assistantTurnBlocks(recycled);
+        if(blocks) blocks.innerHTML='';
+        currentAssistantTurn=recycled;
+      }else{
+        currentAssistantTurn=_createAssistantTurn(tsTitle, isTpsDisplayEnabled()?_formatTurnTps(m._turnTps):'');
+      }
       inner.appendChild(currentAssistantTurn);
     }
     const seg=document.createElement('div');
@@ -12273,6 +12306,7 @@ function renderMessages(options){
     }
   }
   _updateMessageVirtualMeasurements(renderVisWithIdx, renderVisibleIdxs, virtualWindow);
+  _recycleStash.clear();
 }
 
 function _toolDisplayName(tc){
