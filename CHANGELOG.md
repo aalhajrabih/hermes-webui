@@ -3,6 +3,12 @@
 
 ## [Unreleased]
 
+## [v0.51.616] — 2026-06-24 — Release VW (harden recycled assistant turns + scrollbar-drag detection)
+
+### Fixed
+
+- **Recycled message DOM nodes can no longer leak live-stream ownership state, and scrollbar-drag detection is more precise.** Follow-up hardening on the virtual-scroll DOM recycling (#4346): when a turn node is recycled it now also clears the live-stream owner attributes (`data-anchor-scene-live-owner`, `data-anchor-stream-id`, `data-live-assistant-turn`) so a reused node can never carry stale stream state into a new turn, and the scrollbar-drag heuristic now requires the pointer event target to actually be the messages container before treating an edge click as a scrollbar drag (preventing a wide child near the right edge from spuriously suppressing a real user scroll). Thanks @rodboev. (#4793)
+
 ## [v0.51.615] — 2026-06-24 — Release VV (refresh stale model catalogs on session visit)
 
 ### Fixed
