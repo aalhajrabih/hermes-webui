@@ -2350,20 +2350,31 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
     const seq=Number(_assistantSegmentSeq||_currentLiveSegmentSeq||0);
     return Number.isFinite(seq)&&seq>0?seq:1;
   }
+  let _anchorLiveSceneRaf=null;
   function _renderAnchorLiveScene(){
     if(!_anchorRegistry||!_isActiveSession()) return false;
     if(typeof window==='undefined'||typeof window._renderLiveAnchorActivitySceneForStream!=='function') return false;
-    try{
-      return !!window._renderLiveAnchorActivitySceneForStream(streamId, activeSid, {
-        mode:'compact_worklog',
-      });
-    }catch(err){
-      if(!_anchorShadowWarned&&typeof console!=='undefined'&&console.warn){
-        _anchorShadowWarned=true;
-        console.warn('assistant turn anchor live scene render failed',err);
+    // Coalesce rapid calls (e.g. from both _upsertAnchorReasoning and
+    // _updateLiveThinkingCard in the same reasoning event) into a single
+    // rAF render so the expensive scene projection + DOM rebuild runs once
+    // per frame instead of twice.  The 100ms server-side coalescing means
+    // events arrive ≤10 Hz; rAF fires at 60 Hz, so this adds <16 ms latency
+    // — imperceptible, but halves the per-event DOM cost.
+    if(_anchorLiveSceneRaf) return true;
+    _anchorLiveSceneRaf=requestAnimationFrame(function(){
+      _anchorLiveSceneRaf=null;
+      try{
+        window._renderLiveAnchorActivitySceneForStream(streamId, activeSid, {
+          mode:'compact_worklog',
+        });
+      }catch(err){
+        if(!_anchorShadowWarned&&typeof console!=='undefined'&&console.warn){
+          _anchorShadowWarned=true;
+          console.warn('assistant turn anchor live scene render failed',err);
+        }
       }
-      return false;
-    }
+    });
+    return true;
   }
   function _projectLiveAnchorActivityScene(){
     if(!_anchorRegistry||!_anchorApi||typeof _anchorApi.projectAssistantTurnAnchorActivityScene!=='function') return null;
@@ -4156,7 +4167,14 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
       syncInflightAssistantMessage();
       if(text&&S.session&&S.session.session_id===activeSid){
         _upsertAnchorReasoning(_liveThinkingText());
-        _updateLiveThinkingCard(_liveThinkingText());
+        // Skip _updateLiveThinkingCard when anchor scene owns the stream —
+        // _upsertAnchorReasoning already triggers _renderAnchorLiveScene (now
+        // rAF-coalesced), and appendThinking would call
+        // _renderLiveAnchorActivitySceneForStream a SECOND time, doubling the
+        // expensive scene-projection + DOM-rebuild cost per reasoning event.
+        if(!isLiveAnchorActivitySceneOwner(S.activeStreamId)){
+          _updateLiveThinkingCard(_liveThinkingText());
+        }
       }
     });
 
