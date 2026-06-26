@@ -505,6 +505,7 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
             <span id="approvalHeading" data-i18n="approval_heading">Approval required</span>
             <button type="button" class="approval-collapse" id="approvalCollapse" aria-expanded="true" aria-label="Collapse approval" aria-controls="approvalDesc approvalCmd approvalCounter approvalBtns" onclick="toggleApprovalCardCollapsed()" title="Collapse approval"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></button>
+            <button type="button" class="approval-dismiss" onclick="dismissApprovalCard()" aria-label="Dismiss approval" title="Dismiss approval"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
           </div>
           <div class="approval-desc" id="approvalDesc"></div>
           <div class="approval-cmd" id="approvalCmd"></div>
@@ -857,6 +858,7 @@
         </div>
         <div class="main-view-actions">
           <button class="panel-head-btn has-tooltip has-tooltip--bottom" id="btnKanbanCreateBoard" onclick="openKanbanCreateBoard()" data-tooltip="New board" data-i18n-title="kanban_new_board" aria-label="New board"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><line x1="17.5" y1="14" x2="17.5" y2="21"/><line x1="14" y1="17.5" x2="21" y2="17.5"/></svg></button>
+          <button class="panel-head-btn kanban-view-toggle has-tooltip has-tooltip--bottom" id="btnKanbanViewToggle" type="button" onclick="toggleKanbanViewMode()" aria-pressed="false" data-tooltip="Consolidated view" data-i18n-title="kanban_view_consolidated" data-i18n-aria-label="kanban_view_consolidated" aria-label="Consolidated view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 4v16"/><path d="M16 4v16"/><path d="M3 10h18"/></svg></button>
           <button class="panel-head-btn has-tooltip has-tooltip--bottom kanban-nudge-dispatch-btn" id="btnKanbanPreviewDispatcher" onclick="nudgeKanbanDispatcher()" data-tooltip="Preview dispatcher (dry-run)" data-i18n-title="kanban_nudge_dispatcher" aria-label="Preview dispatcher (dry-run)">▶</button>
           <button class="panel-head-btn has-tooltip has-tooltip--bottom kanban-run-dispatch-btn" id="btnKanbanRunDispatcher" onclick="runKanbanDispatcher()" data-tooltip="Run dispatcher — claim Ready tasks" data-i18n-title="kanban_run_dispatcher" aria-label="Run dispatcher"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg></button>
         </div>
@@ -1076,6 +1078,19 @@
                 <span data-i18n="settings_label_render_user_markdown">Render markdown in user messages</span>
               </label>
               <div style="font-size:11px;color:var(--muted);margin-top:4px" data-i18n="settings_desc_render_user_markdown">When enabled, bold, italic, links, and other markdown in your own messages are rendered. Off by default; fenced code blocks and math always render regardless of this setting.</div>
+            </div>
+            <div class="settings-field" style="margin-top:8px">
+              <label for="settingsStructuredCodeMode" data-i18n="settings_label_structured_code">JSON/YAML code blocks</label>
+              <select id="settingsStructuredCodeMode" style="width:100%;padding:8px;background:var(--code-bg);color:var(--text);border:1px solid var(--border2);border-radius:6px">
+                <option value="auto" data-i18n="settings_option_structured_code_auto">Auto: Tree for long blocks</option>
+                <option value="on" data-i18n="settings_option_structured_code_on">Tree by default</option>
+                <option value="off" data-i18n="settings_option_structured_code_off">Raw by default</option>
+              </select>
+              <div style="margin-top:8px">
+                <label for="settingsStructuredCodeAutoLines" data-i18n="settings_label_structured_code_auto_lines">Auto threshold lines</label>
+                <input type="number" id="settingsStructuredCodeAutoLines" min="1" max="1000" step="1" inputmode="numeric" style="width:100%;padding:8px;background:var(--code-bg);color:var(--text);border:1px solid var(--border2);border-radius:6px;font-size:13px">
+              </div>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px" data-i18n="settings_desc_structured_code">When Auto is selected, JSON/YAML blocks with at least this many lines open in Tree view. Tree always opens the structured viewer; Raw keeps the syntax-highlighted text. You can still switch Tree/Raw on each block.</div>
             </div>
             <div class="settings-field" style="margin-top:8px">
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
@@ -1404,16 +1419,45 @@
             <div class="settings-section-head">
               <div>
                 <div class="settings-section-title" data-i18n="settings_tab_extensions">Extensions</div>
-                <div class="settings-section-meta">Diagnostics and enable/disable controls for configured WebUI extensions.</div>
+                <div class="settings-section-meta">Browse, install, and manage WebUI extensions.</div>
               </div>
-              <button class="sm-btn extensions-copy-diagnostics-btn" id="extensionsCopyDiagnosticsBtn" type="button" onclick="copyExtensionsDiagnostics()" disabled>Copy diagnostics</button>
             </div>
-            <div class="settings-field extensions-trust-note" id="extensionsTrustModel">
-              <label>Trust model</label>
-              <div>Extensions run in the WebUI browser origin and can access the same authenticated APIs as this session. Only load trusted local extension directories; disabling an extension takes effect after reload for already-injected assets.</div>
+            <div class="extensions-tab-bar" role="tablist">
+              <button class="extensions-tab-btn extensions-tab-active" role="tab"
+                      data-extensions-tab="gallery"
+                      onclick="switchExtensionsTab('gallery')" type="button"
+                      data-i18n="settings_extensions_gallery_tab">Gallery</button>
+              <button class="extensions-tab-btn" role="tab"
+                      data-extensions-tab="installed"
+                      onclick="switchExtensionsTab('installed')" type="button"
+                      data-i18n="settings_extensions_installed_tab">Installed</button>
+              <button class="extensions-tab-btn" role="tab"
+                      data-extensions-tab="diagnostics"
+                      onclick="switchExtensionsTab('diagnostics')" type="button"
+                      data-i18n="settings_extensions_diagnostics_tab">Diagnostics</button>
             </div>
-            <div id="extensionsDiagnostics" class="extensions-diagnostics" aria-live="polite">
-              <div class="extensions-loading">Loading extension diagnostics…</div>
+            <div data-extensions-pane="gallery">
+              <div id="extensionsGallery" class="extensions-gallery" aria-live="polite">
+                <div class="extensions-loading" data-i18n="settings_extensions_gallery_loading">Loading gallery…</div>
+              </div>
+            </div>
+            <div data-extensions-pane="installed" hidden>
+              <div id="extensionsInstalled" class="extensions-gallery" aria-live="polite">
+                <div class="extensions-loading">Loading installed extensions…</div>
+              </div>
+            </div>
+            <div data-extensions-pane="diagnostics" hidden>
+              <div class="settings-section-head" style="padding-top:8px">
+                <div></div>
+                <button class="sm-btn extensions-copy-diagnostics-btn" id="extensionsCopyDiagnosticsBtn" type="button" onclick="copyExtensionsDiagnostics()" disabled>Copy diagnostics</button>
+              </div>
+              <div class="settings-field extensions-trust-note" id="extensionsTrustModel">
+                <label>Trust model</label>
+                <div>Extensions run in the WebUI browser origin and can access the same authenticated APIs as this session. Only load trusted local extension directories; disabling an extension takes effect after reload for already-injected assets.</div>
+              </div>
+              <div id="extensionsDiagnostics" class="extensions-diagnostics" aria-live="polite">
+                <div class="extensions-loading">Loading extension diagnostics…</div>
+              </div>
             </div>
           </div>
           <div class="settings-pane" id="settingsPaneSystem">

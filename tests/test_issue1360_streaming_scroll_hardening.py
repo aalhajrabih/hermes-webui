@@ -4,6 +4,7 @@ from pathlib import Path
 
 REPO = Path(__file__).parent.parent
 UI_JS = (REPO / "static" / "ui.js").read_text(encoding="utf-8")
+MESSAGES_JS = (REPO / "static" / "messages.js").read_text(encoding="utf-8")
 STYLE_CSS = (REPO / "static" / "style.css").read_text(encoding="utf-8")
 
 
@@ -22,10 +23,46 @@ def _extract_function(src: str, name: str) -> str:
     raise AssertionError(f"Could not extract {name}")
 
 
-def test_messages_scroller_disables_browser_scroll_anchoring():
-    assert "overflow-anchor:none" in STYLE_CSS, (
-        "#messages must disable browser scroll anchoring so tool/card inserts "
-        "cannot yank the transcript while the user reads earlier content."
+def test_messages_scroller_disables_browser_scroll_anchoring_on_desktop():
+    # Desktop (mouse): overflow-anchor:none — tool/card inserts cannot yank
+    # the transcript while the user reads earlier content.
+    assert "@media (hover:hover) and (pointer:fine){.messages{overflow-anchor:none;}}" in STYLE_CSS, (
+        "On desktop (mouse-driven devices) #messages must disable browser scroll "
+        "anchoring so tool/card inserts cannot yank the transcript. "
+        "On mobile (touch devices) overflow-anchor:auto is used instead to prevent "
+        "scrollTop=0 jank during innerHTML rebuild (#MOBILESCROLL)."
+    )
+
+
+def test_messages_scroller_uses_overflow_anchor_auto_on_mobile():
+    # Mobile (touch): overflow-anchor:auto — prevents scrollTop=0 jank during
+    # innerHTML rebuild and streaming DOM updates (#MOBILESCROLL).
+    assert "overflow-anchor:auto;" in STYLE_CSS, (
+        "On mobile/touch devices #messages must default to overflow-anchor:auto "
+        "to prevent the browser painting a frame with scrollTop=0 between "
+        "innerHTML='' and snapshot restore."
+    )
+
+
+def test_streaming_render_enables_mobile_scroll_jank_guard_before_dom_writes():
+    """Streaming must re-enable mobile scroll anchoring before every DOM write.
+
+    Regression: #MOBILESCROLL originally added _fixMobileScrollJank() in the
+    live-stream render tick, but a later streaming parse-cache change dropped
+    that call while leaving the helper/CSS in place. On iOS PWA this lets Safari
+    paint a transient scrollTop=0 frame during streamed DOM rebuilds.
+    """
+    guard_idx = MESSAGES_JS.find("window._fixMobileScrollJank")
+    assert guard_idx != -1, (
+        "attachLiveStream() must call window._fixMobileScrollJank() during the "
+        "streaming render tick, before DOM writes, so iOS PWA does not jump to "
+        "the first/oldest message while assistant output streams."
+    )
+
+    render_idx = MESSAGES_JS.find("_lastRenderMs=performance.now()")
+    assert render_idx != -1, "streaming render timestamp not found"
+    assert guard_idx < render_idx, (
+        "The mobile scroll-jank guard must run before streaming DOM work begins."
     )
 
 

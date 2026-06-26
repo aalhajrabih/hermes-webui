@@ -42,6 +42,24 @@ def make_session(created_list):
     return sid
 
 
+def _make_session_visible(sid):
+    from api.models import Session
+    from tests.conftest import TEST_WORKSPACE
+
+    session = Session(
+        session_id=sid,
+        title="regression-test-delete-R8",
+        workspace=str(TEST_WORKSPACE),
+        model="test",
+        created_at=time.time(),
+        updated_at=time.time(),
+        profile="default",
+        messages=[{"role": "user", "content": "visible row", "timestamp": time.time()}],
+        tool_calls=[],
+    )
+    session.save(touch_updated_at=False)
+
+
 def _make_auth_json_with_credential_pool(
     provider_id: str, pool_entries: list[dict], tmp_dir: pathlib.Path
 ) -> pathlib.Path:
@@ -295,6 +313,8 @@ def test_deleted_session_does_not_appear_in_list(cleanup_test_sessions):
     # Create a session with a title so it shows in the list
     d, _ = post("/api/session/new", {})
     sid = d["session"]["session_id"]
+    post("/api/session/rename", {"session_id": sid, "title": "regression-test-delete-R8"})
+    _make_session_visible(sid)
     post("/api/session/rename", {"session_id": sid, "title": "regression-test-delete-R8"})
 
     # Verify it appears
@@ -792,10 +812,13 @@ def test_inflight_merge_dedupes_uploaded_user_message(cleanup_test_sessions):
     merge must treat those as the same user turn instead of rendering both.
     """
     src = (REPO_ROOT / "static/sessions.js").read_text()
-    assert "function _stripAttachedFilesMarker" in src, (
-        "sessions.js must normalize the server-side attached-files suffix before deduping user turns"
+    assert "function _normalizeUserTranscriptText" in src, (
+        "sessions.js should normalize user transcript text before deduping user turns"
     )
-    assert "_stripAttachedFilesMarker(aText)===_stripAttachedFilesMarker(bText)" in src, (
+    assert "_stripAttachedFilesMarker(_stripForcedSkillEnvelope(text))" in src, (
+        "user transcript normalization should still remove the server-side attached-files suffix"
+    )
+    assert "_normalizeUserTranscriptText(aText)===_normalizeUserTranscriptText(bText)" in src, (
         "INFLIGHT user-message comparison should dedupe optimistic upload text against final pending text"
     )
     assert "role==='user'" in src, (
@@ -804,8 +827,11 @@ def test_inflight_merge_dedupes_uploaded_user_message(cleanup_test_sessions):
     pending_idx = src.find("function _mergePendingSessionMessage")
     assert pending_idx >= 0, "pending session merge helper not found"
     pending_block = src[pending_idx:pending_idx+500]
-    assert "_sameTranscriptMessage(existing,pendingMsg)" in pending_block, (
-        "pending-user merge should reuse transcript identity dedupe before inserting the server pending message"
+    assert "_hasCurrentTailUserDuplicate(currentTurnMessages,pendingMsg)" in pending_block, (
+        "pending-user merge should dedupe only against the current active-turn user row"
+    )
+    assert "messages.some(" not in pending_block, (
+        "pending-user merge must not scan historical user rows by normalized content"
     )
 
 

@@ -58,6 +58,7 @@ def _run_scroll_listener(samples: list[dict[str, int]]) -> dict[str, int | bool 
 const step = new Function(
   'el',
   '_lastScrollTop',
+  '_lastMessageClientHeight',
   '_nearBottomCount',
   '_scrollPinned',
   '_messageUserUnpinned',
@@ -73,6 +74,7 @@ const step = new Function(
   payload.body + `
 return {
   _lastScrollTop,
+  _lastMessageClientHeight,
   _nearBottomCount,
   _scrollPinned,
   _messageUserUnpinned,
@@ -82,6 +84,7 @@ return {
 
 let state = {
   _lastScrollTop: 800,
+  _lastMessageClientHeight: null,
   _nearBottomCount: 0,
   _scrollPinned: true,
   _messageUserUnpinned: false,
@@ -92,6 +95,7 @@ for (const sample of payload.samples) {
   state = step(
     sample,
     state._lastScrollTop,
+    state._lastMessageClientHeight,
     state._nearBottomCount,
     state._scrollPinned,
     state._messageUserUnpinned,

@@ -133,11 +133,22 @@ class TestSwitchWiring:
 
 class TestSessionsWiring:
     def test_skeleton_flag_cleared_on_real_render(self):
-        # renderSessionListFromCache clears the skeleton-active flag when it
-        # writes real rows (so a strand can't persist).
-        idx = SESSIONS.index("function renderSessionListFromCache(")
-        body = SESSIONS[idx: idx + 4000]
-        assert "_sessionListSkeletonActive=false" in body.replace(" ", "")
+        # The authoritative clear now happens in _applySessionListPayload()
+        # immediately before the real render, while renderSessionListFromCache()
+        # keeps the guard that blocks stale cached rows during the skeleton phase.
+        render_idx = SESSIONS.index("function renderSessionListFromCache(")
+        render_body = SESSIONS[render_idx: render_idx + 1200]
+        apply_idx = SESSIONS.index("function _applySessionListPayload(")
+        # Slice to the END of _applySessionListPayload()'s body (the next top-level
+        # function), not a fixed char window — #4748 added lines inside this function
+        # that pushed `_sessionListSkeletonActive = false;` past a fixed 4000-char
+        # window. Anchoring on the next function def keeps the assertion robust.
+        apply_end = SESSIONS.index("function _mergeRenderSessionListOptions(", apply_idx)
+        apply_body = SESSIONS[apply_idx: apply_end]
+
+        assert "if(_sessionListSkeletonActive)return;" in render_body.replace(" ", "")
+        assert "_sessionListSkeletonActive = false;" in apply_body
+        assert "renderSessionListFromCache();" in apply_body
 
     def test_builder_defines_groups_and_function(self):
         assert "const _SESSION_SKELETON_GROUPS" in SESSIONS

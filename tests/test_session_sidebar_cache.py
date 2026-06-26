@@ -1,8 +1,21 @@
 import threading
 from types import SimpleNamespace
 
+import pytest
+
 import api.routes as routes
 from api import session_events
+
+
+@pytest.fixture(autouse=True)
+def _isolated_session_list_cache_state():
+    routes._session_list_cache_clear()
+    with routes._SESSIONS_CACHE_LOCK:
+        routes._SESSIONS_CACHE_INFLIGHT.clear()
+    yield
+    routes._session_list_cache_clear()
+    with routes._SESSIONS_CACHE_LOCK:
+        routes._SESSIONS_CACHE_INFLIGHT.clear()
 
 
 class _StageRecorder:
@@ -74,8 +87,9 @@ def test_session_list_cache_key_separates_profile_and_all_profiles():
     assert calls == ["default", "other", "default_all"]
 
 
-def test_session_list_cache_singleflight_rebuild_once():
+def test_session_list_cache_singleflight_rebuild_once(monkeypatch):
     routes._session_list_cache_clear()
+    monkeypatch.setattr(routes, "_session_list_cache_source_stamp", lambda _key: ("stable",))
 
     started = threading.Event()
     release = threading.Event()
@@ -121,8 +135,9 @@ def test_session_list_cache_singleflight_rebuild_once():
     assert calls == 1
 
 
-def test_session_list_cache_follower_wait_stage_when_rebuild_inflight():
+def test_session_list_cache_follower_wait_stage_when_rebuild_inflight(monkeypatch):
     routes._session_list_cache_clear()
+    monkeypatch.setattr(routes, "_session_list_cache_source_stamp", lambda _key: ("stable",))
 
     started = threading.Event()
     release = threading.Event()
@@ -142,6 +157,15 @@ def test_session_list_cache_follower_wait_stage_when_rebuild_inflight():
 
     follower_diag = _StageRecorder()
     owner_diag = _StageRecorder()
+    wait_seen = threading.Event()
+    original_follower_stage = follower_diag.stage
+
+    def follower_stage(name):
+        original_follower_stage(name)
+        if name == "session_list_cache_wait":
+            wait_seen.set()
+
+    follower_diag.stage = follower_stage
 
     def owner():
         routes._get_cached_session_list_payload(
@@ -159,18 +183,21 @@ def test_session_list_cache_follower_wait_stage_when_rebuild_inflight():
 
     owner_thread = threading.Thread(target=owner)
     follower_thread = threading.Thread(target=follower)
-    owner_thread.start()
-    assert started.wait(1.0)
-    follower_thread.start()
-    release.set()
-    owner_thread.join(2)
-    follower_thread.join(2)
+    try:
+        owner_thread.start()
+        assert started.wait(1.0)
+        follower_thread.start()
+        assert wait_seen.wait(1.0)
+    finally:
+        release.set()
+        owner_thread.join(2)
+        follower_thread.join(2)
 
     assert "session_list_cache_wait" in follower_diag.stages
     assert "session_list_cache_hit" in owner_diag.stages or "session_list_cache_stored" in owner_diag.stages
 
 
-def test_session_list_cache_follower_reuses_stale_payload_during_slow_rebuild():
+def test_session_list_cache_follower_reuses_stale_payload_during_slow_rebuild(monkeypatch):
     routes._session_list_cache_clear()
 
     key = routes._session_list_cache_key(
@@ -188,6 +215,15 @@ def test_session_list_cache_follower_reuses_stale_payload_during_slow_rebuild():
             stamp,
             payload,
         )
+    # Simulate the #4834 path: state.db/WAL/fingerprint changes after the
+    # stale payload was cached. Followers must still be able to use that stale
+    # payload while the owner rebuild is blocked; otherwise sidebar polling can
+    # pile up behind a slow rebuild.
+    monkeypatch.setattr(
+        routes,
+        "_session_list_cache_source_stamp",
+        lambda _key: ("changed",),
+    )
 
     started = threading.Event()
     release = threading.Event()
@@ -217,13 +253,16 @@ def test_session_list_cache_follower_reuses_stale_payload_during_slow_rebuild():
 
     owner_thread = threading.Thread(target=owner)
     follower_thread = threading.Thread(target=follower)
-    owner_thread.start()
-    assert started.wait(1.0)
-    follower_thread.start()
-    follower_thread.join(1.0)
-    assert not follower_thread.is_alive()
-    release.set()
-    owner_thread.join(2.0)
+    try:
+        owner_thread.start()
+        assert started.wait(1.0)
+        follower_thread.start()
+        follower_thread.join(1.0)
+        assert not follower_thread.is_alive()
+    finally:
+        release.set()
+        owner_thread.join(2.0)
+        follower_thread.join(2.0)
 
     assert follower_result["payload"] == _session_cache_payload("stale")
     assert owner_result["payload"] == _session_cache_payload("fresh")
@@ -515,3 +554,75 @@ def test_source_stamp_still_tracks_wal_when_idle(tmp_path, monkeypatch):
     after = routes._session_list_cache_source_stamp(key)
 
     assert after != before
+
+
+def _streaming_ttl_key():
+    return routes._session_list_cache_key(
+        active_profile="default",
+        all_profiles=False,
+        show_cli_sessions=False,
+        show_previous_messaging_sessions=False,
+        show_cron_sessions=False,
+    )
+
+
+def _age_cache_entry(key, seconds):
+    """Backdate the cache entry's timestamp by `seconds` (keep stamp+payload)."""
+    with routes._SESSIONS_CACHE_LOCK:
+        ts, stamp, payload = routes._SESSIONS_CACHE[key]
+        routes._SESSIONS_CACHE[key] = (ts - seconds, stamp, payload)
+
+
+def test_streaming_widens_cache_freshness_window(monkeypatch):
+    """#4808: while a turn streams, an entry older than the idle TTL but younger
+    than the streaming TTL must still read FRESH, so the fixed 5s streaming poll
+    does not force a rebuild every poll."""
+    routes._session_list_cache_clear()
+    key = _streaming_ttl_key()
+    # Keep the source stamp stable across the get() calls (no structural change).
+    monkeypatch.setattr(routes, "_session_list_cache_source_stamp", lambda k: ("stable",))
+
+    routes._session_list_cache_set(key, _session_cache_payload("live"))
+    # Age it past the idle 2.5s TTL but under the 10s streaming TTL.
+    _age_cache_entry(key, routes._SESSIONS_CACHE_TTL_SECONDS + 1.0)
+
+    # Idle (no active stream) → stale → miss.
+    monkeypatch.setattr(routes, "_active_stream_ids", lambda: set())
+    payload_idle, fresh_idle = routes._session_list_cache_get(key)
+    assert payload_idle is None and fresh_idle is False
+
+    # Re-seed + re-age, now WITH an active stream → fresh (held).
+    routes._session_list_cache_set(key, _session_cache_payload("live"))
+    _age_cache_entry(key, routes._SESSIONS_CACHE_TTL_SECONDS + 1.0)
+    monkeypatch.setattr(routes, "_active_stream_ids", lambda: {"turn-1"})
+    payload_stream, fresh_stream = routes._session_list_cache_get(key)
+    assert fresh_stream is True
+    assert payload_stream == _session_cache_payload("live")
+
+
+def test_streaming_window_still_evicts_past_streaming_ttl(monkeypatch):
+    """Even while streaming, an entry older than the streaming TTL is evicted —
+    the hold-down is bounded, not indefinite."""
+    routes._session_list_cache_clear()
+    key = _streaming_ttl_key()
+    monkeypatch.setattr(routes, "_session_list_cache_source_stamp", lambda k: ("stable",))
+    monkeypatch.setattr(routes, "_active_stream_ids", lambda: {"turn-1"})
+
+    routes._session_list_cache_set(key, _session_cache_payload("old"))
+    _age_cache_entry(key, routes._SESSIONS_CACHE_STREAMING_TTL_SECONDS + 1.0)
+    payload, fresh = routes._session_list_cache_get(key)
+    assert payload is None and fresh is False
+
+
+def test_streaming_window_does_not_extend_idle_ttl(monkeypatch):
+    """Regression guard: with NO active stream the idle 2.5s TTL is unchanged —
+    an entry aged just past it must read stale (byte-for-byte idle behavior)."""
+    routes._session_list_cache_clear()
+    key = _streaming_ttl_key()
+    monkeypatch.setattr(routes, "_session_list_cache_source_stamp", lambda k: ("stable",))
+    monkeypatch.setattr(routes, "_active_stream_ids", lambda: set())
+
+    routes._session_list_cache_set(key, _session_cache_payload("idle"))
+    _age_cache_entry(key, routes._SESSIONS_CACHE_TTL_SECONDS + 0.5)
+    payload, fresh = routes._session_list_cache_get(key)
+    assert payload is None and fresh is False

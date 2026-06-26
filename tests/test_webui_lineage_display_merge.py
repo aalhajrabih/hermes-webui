@@ -44,6 +44,37 @@ def test_webui_lineage_display_merge_includes_parent_only_rows(monkeypatch):
     ]
 
 
+def test_webui_lineage_display_merge_preserves_duplicate_turn_duration(monkeypatch):
+    parent = SimpleNamespace(
+        session_id="parent",
+        messages=[
+            _msg("assistant", "final answer", 2000.0),
+        ],
+    )
+    tip = SimpleNamespace(
+        session_id="tip",
+        parent_session_id="parent",
+        session_source="webui",
+        messages=[
+            {
+                "role": "assistant",
+                "content": "final answer",
+                "timestamp": 2000.0,
+                "_turnDuration": 502.765,
+            },
+        ],
+        truncation_watermark=None,
+    )
+
+    monkeypatch.setattr(routes, "get_session", lambda sid, metadata_only=False: parent)
+
+    merged = routes._merged_webui_lineage_messages_for_display(tip, tip.messages)
+
+    assert len(merged) == 1
+    assert merged[0]["content"] == "final answer"
+    assert merged[0]["_turnDuration"] == 502.765
+
+
 def test_webui_lineage_display_keeps_cumulative_child_tail_without_timestamps(monkeypatch):
     parent = SimpleNamespace(
         session_id="parent",

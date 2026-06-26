@@ -10,7 +10,8 @@ JavaScript into the app shell without editing the WebUI source tree.
 > and triggering tool actions. **Only enable extensions you wrote yourself or
 > from sources you trust as much as the WebUI source itself.** If your WebUI is
 > shared with users you do not fully trust, do not enable extensions.
-> Do not point `HERMES_WEBUI_EXTENSION_DIR` at a user-writable directory.
+> If you set `HERMES_WEBUI_EXTENSION_DIR` yourself, do not point it at a
+> user-writable directory on a shared host.
 
 This is intentionally not a plugin marketplace or dependency system. It is a
 safe escape hatch for local dashboards, internal tooling, and workflow-specific
@@ -39,9 +40,31 @@ Extensions cannot, by themselves:
 
 ## Configuration
 
-Extensions are disabled by default. Configure them with environment variables
-before starting the WebUI server. `HERMES_WEBUI_EXTENSION_DIR` must point to an
-existing directory before any script or stylesheet URLs are injected:
+### One-click install (no configuration required)
+
+For a single-user self-hosted instance you do not need to configure anything.
+Open **Settings → Extensions**, pick an extension from the gallery, and click
+**Install** — it just works. The first install creates a WebUI-managed
+extension directory under your state dir (`STATE_DIR/extensions`, e.g.
+`~/.hermes/webui/extensions/`) and installs into it; gallery-installed
+extensions load automatically on the next app-shell render with no environment
+variables and no restart of your shell.
+
+The managed directory lives alongside your sessions and settings in the
+WebUI-owned state dir. That is a different trust domain from "a world-writable
+directory on a shared box": only the WebUI process (and whoever can already
+write your `~/.hermes` state) can place code there. The trust model below still
+applies — installed extension code runs with full session authority — so only
+install extensions from the vetted gallery or sources you trust as much as the
+WebUI source itself.
+
+### Manual / advanced configuration (optional)
+
+`HERMES_WEBUI_EXTENSION_DIR` is **optional** and overrides the managed default.
+Set it when you want extensions to live in a specific directory you control
+(e.g. a checked-out bundle, or a path mounted into a container). When set it
+must point to an existing directory before any script or stylesheet URLs are
+injected; WebUI never auto-creates an admin-specified path:
 
 ```bash
 export HERMES_WEBUI_EXTENSION_DIR=/path/to/my-extension/static
@@ -94,6 +117,22 @@ may be kept in the manifest with the JSON boolean `"enabled": false`. Explicit
 `HERMES_WEBUI_EXTENSION_SCRIPT_URLS` and
 `HERMES_WEBUI_EXTENSION_STYLESHEET_URLS` still work and are appended after
 manifest assets, with duplicates ignored.
+
+When an extension is installed from Settings -> Extensions, WebUI records the
+installed package and loads that package's `manifest.json` automatically on the
+next app-shell render. In this gallery-installed mode, a manifest located at
+`HERMES_WEBUI_EXTENSION_DIR/<extension-id>/manifest.json` resolves bare relative
+assets relative to that package directory. For example,
+`"scripts": ["assets/companion-adapter.js"]` in
+`desktop-companion/manifest.json` injects
+`/extensions/desktop-companion/assets/companion-adapter.js`.
+
+Manual manifests configured with `HERMES_WEBUI_EXTENSION_MANIFEST` follow the
+same rule: relative assets resolve from the manifest file's directory. A root
+manifest such as `extensions.json` keeps the existing
+`/extensions/<asset-path>` behavior, while a subdirectory manifest such as
+`desktop-companion/manifest.json` resolves relative assets under
+`/extensions/desktop-companion/`.
 
 Extension entries may also declare a read-only loopback sidecar for diagnostics:
 
