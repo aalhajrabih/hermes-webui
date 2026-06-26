@@ -3,6 +3,12 @@
 
 ## [Unreleased]
 
+## [v0.51.672] — 2026-06-26 — Release YB (faster cron sidebar rebuild on stores missing the message index)
+
+### Fixed
+
+- **The cron/CLI sidebar rebuild is much faster on a `state.db` that lacks the message-session index.** When `idx_messages_session` is missing (an unmigrated/older store), the cron-only capped rescue scan ran a correlated per-row latest-message subquery that could take multiple seconds cold. That pass now uses a single pre-aggregated latest-message ordering (one grouped scan) for the missing-index case only; the common indexed path is unchanged (the correlated ordering is still the faster plan on a healthy migrated store), and the session set/order is identical to before. Follow-up to the #4842 chain, independent of #4952. Thanks @rodboev. (#4962)
+
 ## [v0.51.671] — 2026-06-26 — Release YA (sidebar polls no longer stall behind a slow session-list rebuild)
 
 ### Fixed
